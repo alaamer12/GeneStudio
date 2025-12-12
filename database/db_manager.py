@@ -233,6 +233,4 @@ class DatabaseManager:
             self._connection_pool.clear()
 
 
-class DatabaseError(Exception):
-    """Custom exception for database operations."""
-    pass
+# DatabaseError is imported from utils.error_handling - no need to redefine

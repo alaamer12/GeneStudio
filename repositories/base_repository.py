@@ -2,7 +2,8 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Optional, List, Dict, TypeVar, Generic
-from database.db_manager import DatabaseManager, DatabaseError
+from database.db_manager import DatabaseManager
+from utils.error_handling import DatabaseError
 import logging
 
 T = TypeVar('T')

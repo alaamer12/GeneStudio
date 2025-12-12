@@ -5,6 +5,8 @@ A professional desktop GUI application for DNA sequence analysis implementing
 core bioinformatics algorithms with enterprise-grade multi-page interface.
 """
 
+__version__ = "1.0.0"
+
 import customtkinter as ctk
 from views.main_window import MainWindowPro
 

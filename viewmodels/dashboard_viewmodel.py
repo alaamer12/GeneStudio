@@ -154,19 +154,21 @@ class DashboardViewModel(BaseViewModel):
     def _load_recent_activity(self) -> tuple[bool, List[Dict[str, Any]]]:
         """Load recent activity data."""
         try:
-            # Get recent projects
-            proj_success, recent_projects = self.project_service.list_projects({
-                'limit': 5,
-                'order_by': 'modified_date',
-                'order': 'desc'
-            })
+            # Get recent projects (get all and sort in memory for now)
+            proj_success, all_projects = self.project_service.list_projects()
+            recent_projects = []
+            if proj_success:
+                # Sort by modified_date and take first 5
+                sorted_projects = sorted(all_projects, key=lambda p: p.modified_date, reverse=True)
+                recent_projects = sorted_projects[:5]
             
-            # Get recent analyses
-            analysis_success, recent_analyses = self.analysis_service.list_analyses({
-                'limit': 5,
-                'order_by': 'created_date',
-                'order': 'desc'
-            })
+            # Get recent analyses (get all and sort in memory for now)
+            analysis_success, all_analyses = self.analysis_service.list_analyses()
+            recent_analyses = []
+            if analysis_success:
+                # Sort by created_date and take first 5
+                sorted_analyses = sorted(all_analyses, key=lambda a: a.created_date, reverse=True)
+                recent_analyses = sorted_analyses[:5]
             
             activity = []
             
@@ -220,17 +222,17 @@ class DashboardViewModel(BaseViewModel):
         try:
             cutoff_date = datetime.now() - timedelta(days=7)
             
-            # Count recent projects
-            proj_success, recent_projects = self.project_service.list_projects({
-                'modified_after': cutoff_date
-            })
-            proj_count = len(recent_projects) if proj_success else 0
+            # Count recent projects (use proper date filtering)
+            proj_success, all_projects = self.project_service.list_projects()
+            proj_count = 0
+            if proj_success:
+                proj_count = len([p for p in all_projects if p.modified_date >= cutoff_date])
             
-            # Count recent analyses
-            analysis_success, recent_analyses = self.analysis_service.list_analyses({
-                'created_after': cutoff_date
-            })
-            analysis_count = len(recent_analyses) if analysis_success else 0
+            # Count recent analyses (use proper date filtering)
+            analysis_success, all_analyses = self.analysis_service.list_analyses()
+            analysis_count = 0
+            if analysis_success:
+                analysis_count = len([a for a in all_analyses if a.created_date >= cutoff_date])
             
             return proj_count + analysis_count
             

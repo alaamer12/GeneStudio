@@ -267,9 +267,10 @@ IF YOU ARE GOING TO RUN THE GUI [ie. main.py] just compile it or RUN IT with tim
 - [ ]* 5.3 Write integration tests for complete workflows
   - Create end-to-end tests for project creation, FASTA import, and analysis execution
   - Test error recovery scenarios and user feedback mechanisms
+
   - Validate data persistence across application restarts
 
 
 
-- [ ] 5.4 Final checkpoint - Ensure all tests pass
+- [x] 5.4 Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.

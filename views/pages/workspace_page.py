@@ -258,9 +258,11 @@ class WorkspacePage(ctk.CTkFrame):
         self.path_label.pack(fill="x", padx=10, pady=5)
         
         # Add tooltip to path display
+        # Fix f-string backslash issue
+        newline_char = '\n'
         create_status_tooltip(
             self.path_label,
-            lambda: f"Current Directory: {self.viewmodel.get_state('file_browser_path', 'Not set')}\n\n"
+            lambda: f"Current Directory: {self.viewmodel.get_state('file_browser_path', 'Not set')}{newline_char}{newline_char}"
                     "Click on folders to navigate. Use ⬆️ to go up one level."
         )
         
@@ -395,7 +397,8 @@ class WorkspacePage(ctk.CTkFrame):
                 "Contains biological sequence data in FASTA format"
             )
         else:
-            tooltip_text = f"File: {file_info['name']}\nClick to select"
+            newline_char = '\n'
+            tooltip_text = f"File: {file_info['name']}{newline_char}Click to select"
         
         create_tooltip(item_frame, tooltip_text)
         
@@ -481,9 +484,11 @@ class WorkspacePage(ctk.CTkFrame):
             header_label.pack(side="left", fill="x", expand=True, padx=10, pady=5)
             
             # Add status tooltip to read-only header
+            # Fix f-string backslash issue
+            newline_char = '\n'
             create_status_tooltip(
                 header_label,
-                lambda: f"Sequence: {sequence_header or 'Untitled'}\n\n"
+                lambda: f"Sequence: {sequence_header or 'Untitled'}{newline_char}{newline_char}"
                         "This is the FASTA header line that identifies the sequence. "
                         "Click Edit to modify the header and sequence content."
             )
@@ -571,10 +576,12 @@ class WorkspacePage(ctk.CTkFrame):
             self.editor.configure(state="disabled")
             
             # Add status tooltip for read-only mode
+            # Fix f-string backslash issue
+            newline_char = '\n'
             create_status_tooltip(
                 self.editor,
-                lambda: f"Sequence Content (Read-Only)\n\n"
-                        f"Length: {len(sequence_content.replace('>', '').replace('\n', '').strip())} characters\n"
+                lambda: f"Sequence Content (Read-Only){newline_char}{newline_char}"
+                        f"Length: {len(sequence_content.replace('>', '').replace(newline_char, '').strip())} characters{newline_char}"
                         "Click Edit button to modify this sequence."
             )
     
@@ -610,14 +617,16 @@ class WorkspacePage(ctk.CTkFrame):
         
         # Add tooltip to sequence properties
         if current_sequence and sequence_content:
+            # Fix f-string backslash issue
+            newline_char = '\n'
             create_status_tooltip(
                 stats_label,
                 lambda: TooltipTemplates.bioinformatics_term(
                     "Sequence Properties",
                     f"Calculated statistics for the current sequence:",
-                    f"• Length: Number of nucleotides/amino acids\n"
-                    f"• GC Content: Percentage of G and C nucleotides (DNA stability indicator)\n"
-                    f"• Type: {seq_type} sequence format\n\n"
+                    f"• Length: Number of nucleotides/amino acids{newline_char}"
+                    f"• GC Content: Percentage of G and C nucleotides (DNA stability indicator){newline_char}"
+                    f"• Type: {seq_type} sequence format{newline_char}{newline_char}"
                     f"GC content affects DNA melting temperature and stability."
                 )
             )
