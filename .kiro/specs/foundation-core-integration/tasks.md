@@ -3,7 +3,12 @@
 ALWAYS RUN FROM `.venv`. ie. `.venv\scripts\python <command>`
 IF YOU ARE GOING TO RUN THE GUI [ie. main.py] just compile it or RUN IT with time off to terminate if it passed without errors
 
-- [-] 1. Foundation Layer - Database, Models, and Core Infrastructure
+- [x] 1. Foundation Layer - Database, Models, and Core Infrastructure
+
+
+
+
+
 
 
 
