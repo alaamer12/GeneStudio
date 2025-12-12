@@ -19,8 +19,9 @@ class Toast(ctk.CTkFrame):
     """Individual toast notification."""
     
     def __init__(self, parent, message: str, toast_type: ToastType, 
-                 duration: Optional[int] = None, on_close: Optional[Callable] = None):
-        super().__init__(parent, corner_radius=8)
+                 duration: Optional[int] = None, on_close: Optional[Callable] = None,
+                 width: int = 320, height: int = 80):
+        super().__init__(parent, corner_radius=8, width=width, height=height)
         
         self.message = message
         self.toast_type = toast_type
@@ -44,82 +45,110 @@ class Toast(ctk.CTkFrame):
         self.animate_in()
     
     def _configure_appearance(self):
-        """Configure toast appearance based on type."""
+        """Configure toast appearance based on type with theme-aligned styling."""
+        # Theme-aligned colors - subtle and professional
         colors = {
-            ToastType.SUCCESS: {"bg": "#2fa572", "hover": "#268a5f"},
-            ToastType.ERROR: {"bg": "#d42f2f", "hover": "#b02525"},
-            ToastType.INFO: {"bg": "#1f6aa5", "hover": "#1a5a8a"},
-            ToastType.WARNING: {"bg": "#ffa500", "hover": "#e6940a"}
+            ToastType.SUCCESS: {
+                "bg": ("gray90", "gray20"), 
+                "icon_bg": "#2fa572", 
+                "icon_text": "white"
+            },
+            ToastType.ERROR: {
+                "bg": ("gray90", "gray20"), 
+                "icon_bg": "#d42f2f", 
+                "icon_text": "white"
+            },
+            ToastType.INFO: {
+                "bg": ("gray90", "gray20"), 
+                "icon_bg": "#1f6aa5", 
+                "icon_text": "white"
+            },
+            ToastType.WARNING: {
+                "bg": ("gray90", "gray20"), 
+                "icon_bg": "#ffa500", 
+                "icon_text": "white"
+            }
         }
         
-        color_config = colors.get(self.toast_type, colors[ToastType.INFO])
-        self.configure(fg_color=color_config["bg"])
+        self.color_config = colors.get(self.toast_type, colors[ToastType.INFO])
         
-        # Store colors for hover effects
-        self.bg_color = color_config["bg"]
-        self.hover_color = color_config["hover"]
+        # Configure with theme-aligned styling
+        self.configure(
+            fg_color=self.color_config["bg"],
+            border_width=1,
+            border_color=("gray70", "gray40"),
+            corner_radius=8
+        )
     
     def _create_content(self):
-        """Create toast content."""
+        """Create toast content with theme-aligned styling."""
         # Configure grid
         self.grid_columnconfigure(1, weight=1)
         
-        # Icon
+        # Icon symbols
         icons = {
             ToastType.SUCCESS: "✓",
-            ToastType.ERROR: "✗",
+            ToastType.ERROR: "✗", 
             ToastType.INFO: "ℹ",
             ToastType.WARNING: "⚠"
         }
         
-        icon_label = ctk.CTkLabel(
+        # Circular icon with colored background
+        icon_frame = ctk.CTkFrame(
             self,
-            text=icons.get(self.toast_type, "ℹ"),
-            font=("Arial", 16, "bold"),
-            text_color="white",
-            width=30
+            width=28,
+            height=28,
+            fg_color=self.color_config["icon_bg"],
+            corner_radius=14
         )
-        icon_label.grid(row=0, column=0, padx=(15, 5), pady=15, sticky="w")
+        icon_frame.grid(row=0, column=0, padx=(16, 12), pady=16, sticky="w")
+        icon_frame.grid_propagate(False)
         
-        # Message
+        icon_label = ctk.CTkLabel(
+            icon_frame,
+            text=icons.get(self.toast_type, "ℹ"),
+            font=("Arial", 12, "bold"),
+            text_color=self.color_config["icon_text"]
+        )
+        icon_label.place(relx=0.5, rely=0.5, anchor="center")
+        
+        # Message with theme-aligned typography
         self.message_label = ctk.CTkLabel(
             self,
             text=self.message,
             font=("Arial", 12),
-            text_color="white",
-            wraplength=250,
-            justify="left"
+            text_color=("gray10", "gray90"),
+            wraplength=220,
+            justify="left",
+            anchor="w"
         )
-        self.message_label.grid(row=0, column=1, padx=(5, 10), pady=15, sticky="ew")
+        self.message_label.grid(row=0, column=1, padx=(0, 12), pady=16, sticky="ew")
         
-        # Close button
+        # Close button with subtle styling
         close_button = ctk.CTkButton(
             self,
             text="×",
             font=("Arial", 16, "bold"),
-            text_color="white",
+            text_color=("gray40", "gray60"),
             fg_color="transparent",
-            hover_color=self.hover_color,
-            width=30,
-            height=30,
+            hover_color=("gray80", "gray30"),
+            width=20,
+            height=20,
+            corner_radius=10,
             command=self.close
         )
-        close_button.grid(row=0, column=2, padx=(5, 10), pady=15, sticky="e")
-        
-        # Bind hover effects
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+        close_button.grid(row=0, column=2, padx=(0, 16), pady=16, sticky="e")
     
     def _on_enter(self, event):
         """Handle mouse enter."""
-        self.configure(fg_color=self.hover_color)
+        self.configure(border_color=("gray60", "gray50"))
         # Pause auto-dismiss on hover
         if self.auto_dismiss_timer:
             self.pause_auto_dismiss()
     
     def _on_leave(self, event):
         """Handle mouse leave."""
-        self.configure(fg_color=self.bg_color)
+        self.configure(border_color=("gray70", "gray40"))
         # Resume auto-dismiss after hover
         if self.duration and self.duration > 0:
             self.start_auto_dismiss()
@@ -139,31 +168,45 @@ class Toast(ctk.CTkFrame):
             self.auto_dismiss_timer = None
     
     def animate_in(self):
-        """Animate toast sliding in from right."""
+        """Animate toast sliding in from right with smooth easing."""
         def animate():
-            steps = 20
-            step_size = (self.current_x - self.target_x) / steps
+            steps = 15
+            duration_ms = 200
+            step_delay = duration_ms // steps
             
-            for i in range(steps):
-                self.current_x -= step_size
-                self.after(i * 10, lambda x=self.current_x: self.place(x=x))
+            for i in range(steps + 1):
+                # Ease-out animation curve
+                progress = i / steps
+                eased_progress = 1 - (1 - progress) ** 3  # Cubic ease-out
+                
+                new_x = self.current_x + (self.target_x - self.current_x) * eased_progress
+                
+                self.after(i * step_delay, lambda x=new_x: self.place(x=x))
         
         threading.Thread(target=animate, daemon=True).start()
     
     def animate_out(self, callback: Optional[Callable] = None):
-        """Animate toast sliding out to right."""
+        """Animate toast sliding out to right with smooth easing."""
         def animate():
-            steps = 15
-            step_size = 300 / steps
+            steps = 12
+            duration_ms = 150
+            step_delay = duration_ms // steps
+            slide_distance = 350
             
-            for i in range(steps):
-                new_x = self.current_x + step_size
-                self.after(i * 8, lambda x=new_x: self.place(x=x))
-                self.current_x = new_x
+            start_x = self.winfo_x()
+            
+            for i in range(steps + 1):
+                # Ease-in animation curve
+                progress = i / steps
+                eased_progress = progress ** 2  # Quadratic ease-in
+                
+                new_x = start_x + (slide_distance * eased_progress)
+                
+                self.after(i * step_delay, lambda x=new_x: self.place(x=x))
             
             # Call callback after animation
             if callback:
-                self.after(steps * 8, callback)
+                self.after(duration_ms + 10, callback)
         
         threading.Thread(target=animate, daemon=True).start()
     
@@ -224,12 +267,17 @@ class ToastManager:
             oldest_toast.close()
         
         # Create new toast
+        toast_width = 320
+        toast_height = 80
+        
         toast = Toast(
             self.container,
             message=message,
             toast_type=toast_type,
             duration=duration,
-            on_close=self._on_toast_close
+            on_close=self._on_toast_close,
+            width=toast_width,
+            height=toast_height
         )
         
         # Position toast
@@ -241,22 +289,34 @@ class ToastManager:
         return toast
     
     def _position_toast(self, toast: Toast):
-        """Position toast in the container."""
-        # Calculate position (bottom-right corner with stacking)
+        """Position toast in the container (bottom-right corner)."""
+        # Toast dimensions
         toast_height = 80
         toast_width = 320
         margin = 20
+        spacing = 10
         
         # Get container dimensions
+        self.container.update_idletasks()  # Ensure accurate dimensions
         container_width = self.container.winfo_width()
         container_height = self.container.winfo_height()
         
-        # Calculate position
+        # Ensure minimum container size for toast visibility
+        if container_width < toast_width + (margin * 2):
+            container_width = toast_width + (margin * 2)
+        if container_height < toast_height + (margin * 2):
+            container_height = toast_height + (margin * 2)
+        
+        # Calculate position (bottom-right corner with upward stacking)
         x = container_width - toast_width - margin
-        y = container_height - margin - (len(self.toasts) * (toast_height + 10))
+        y = container_height - margin - toast_height - (len(self.toasts) * (toast_height + spacing))
+        
+        # Ensure toast stays within bounds
+        x = max(margin, min(x, container_width - toast_width - margin))
+        y = max(margin, min(y, container_height - toast_height - margin))
         
         # Place toast
-        toast.place(x=x, y=y, width=toast_width, height=toast_height)
+        toast.place(x=x, y=y)
         toast.target_x = x
     
     def _on_toast_close(self, toast: Toast):
@@ -269,13 +329,25 @@ class ToastManager:
     def _reposition_toasts(self):
         """Reposition remaining toasts after one is closed."""
         toast_height = 80
+        toast_width = 320
         margin = 20
+        spacing = 10
         
+        self.container.update_idletasks()
+        container_width = self.container.winfo_width()
         container_height = self.container.winfo_height()
         
+        # Reposition all remaining toasts
         for i, toast in enumerate(self.toasts):
-            new_y = container_height - margin - ((i + 1) * (toast_height + 10))
-            toast.place(y=new_y)
+            x = container_width - toast_width - margin
+            y = container_height - margin - toast_height - (i * (toast_height + spacing))
+            
+            # Ensure toast stays within bounds
+            x = max(margin, min(x, container_width - toast_width - margin))
+            y = max(margin, min(y, container_height - toast_height - margin))
+            
+            # Animate to new position
+            toast.place(x=x, y=y)
     
     def clear_all(self):
         """Clear all toast notifications."""

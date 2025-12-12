@@ -7,7 +7,7 @@ import os
 from viewmodels.base_viewmodel import BaseViewModel
 from services.sequence_service import SequenceService
 from services.project_service import ProjectService
-from models.sequence_model import Sequence
+from models.sequence_model_enhanced import Sequence
 
 
 class WorkspaceViewModel(BaseViewModel):

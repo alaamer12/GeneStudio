@@ -28,8 +28,12 @@ class DatabaseManager:
             return
         
         self._initialized = True
-        self.db_path = Path("data/genestudio.db")
-        self.db_path.parent.mkdir(exist_ok=True)
+        
+        # Use platform-specific directory
+        from utils.platform_dirs import get_database_dir
+        db_dir = get_database_dir()
+        self.db_path = db_dir / "genestudio.db"
+        
         self._connection_pool = {}
         self._pool_lock = threading.Lock()
         self.logger = logging.getLogger(__name__)

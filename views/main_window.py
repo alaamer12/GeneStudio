@@ -2,12 +2,14 @@
 
 import customtkinter as ctk
 from views.page_manager import PageManager
-from views.components import NavigationSidebar, Header, Footer
+from views.components import NavigationSidebar, Header, Footer, set_toast_container
 from views.pages import (
-    DashboardPage, ProjectsPage, WorkspacePage, AnalysisPage,
+    DashboardPage, WorkspacePage, AnalysisPage,
     VisualizationPage, PatternMatchingPage, GraphAnalysisPage,
     ReportsPage, SettingsPage, SequenceManagementPage, HelpPage, ExportPage
 )
+from views.pages.projects_page import ProjectsPage
+from utils.window_state_manager import WindowStateManager
 
 
 class MainWindowPro(ctk.CTk):
@@ -16,9 +18,15 @@ class MainWindowPro(ctk.CTk):
     def __init__(self):
         super().__init__()
         
+        # Window state manager
+        self.window_state_manager = WindowStateManager()
+        
         # Window configuration
         self.title("GeneStudio Pro - Enterprise DNA Sequence Analysis")
-        self.geometry("1400x900")
+        
+        # Set up window state management (minimum size, restore state)
+        self.window_state_manager.restore_window_state(self)
+        self.window_state_manager.setup_window_callbacks(self)
         
         # Configure grid
         self.grid_rowconfigure(1, weight=1)
@@ -48,8 +56,12 @@ class MainWindowPro(ctk.CTk):
         self.footer = Footer(self)
         self.footer.grid(row=2, column=0, columnspan=2, sticky="ew")
         
-        # Show dashboard by default
-        self.navigation.set_active_page("dashboard")
+        # Set up toast notification container
+        set_toast_container(self)
+        
+        # Show last active page or dashboard by default
+        last_page = self.window_state_manager.get_last_page()
+        self.navigation.set_active_page(last_page)
         
     def _register_pages(self):
         """Register all application pages."""
@@ -70,6 +82,9 @@ class MainWindowPro(ctk.CTk):
         """Handle navigation to a page."""
         # Update page
         self.page_manager.show_page(page_id)
+        
+        # Save last active page
+        self.window_state_manager.save_last_page(page_id)
         
         # Update breadcrumb
         page_names = {
