@@ -2,6 +2,8 @@
 
 ## Introduction
 
+use pypika for SELECT/INSERT/UPDATE/DELETE queries.
+
 This specification defines the Foundation & Core Integration milestone for GeneStudio Pro, a modern desktop GUI application for DNA sequence analysis and bioinformatics algorithms. The current system has a complete enterprise UI scaffold with 12 pages and comprehensive bioinformatics algorithms, but lacks integration between the presentation layer and business logic. This milestone establishes the data architecture, persistence layer, and core integration to transform the application from a UI prototype into a functional bioinformatics tool.
 
 ## Glossary
