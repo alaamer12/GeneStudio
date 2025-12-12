@@ -1,260 +1,155 @@
-"""Base ViewModel abstract class with observer pattern."""
+"""Base ViewModel class with observer pattern and state management."""
 
-from abc import ABC
-from typing import Any, Callable, Dict, List, Optional
-import logging
-import threading
+from typing import Any, Dict, List, Callable, Optional
+from utils.logger import get_logger
 
 
-class BaseViewModel(ABC):
-    """Abstract base class for all ViewModels implementing observer pattern."""
+class BaseViewModel:
+    """Abstract base class for all ViewModels with observer pattern."""
     
     def __init__(self):
-        """Initialize ViewModel with observer pattern support."""
+        """Initialize base ViewModel."""
+        self.logger = get_logger(self.__class__.__name__)
+        self._observers: List[Callable] = []
         self._state: Dict[str, Any] = {}
-        self._observers: List[Callable[[], None]] = []
-        self._property_observers: Dict[str, List[Callable[[Any], None]]] = {}
-        self._lock = threading.Lock()
-        self.logger = logging.getLogger(self.__class__.__name__)
-    
-    def add_observer(self, callback: Callable[[], None]) -> None:
-        """
-        Add an observer that will be notified of any state changes.
+        self._loading_states: Dict[str, bool] = {}
         
-        Args:
-            callback: Function to call when state changes
-        """
-        with self._lock:
-            if callback not in self._observers:
-                self._observers.append(callback)
-                self.logger.debug(f"Added observer: {callback.__name__}")
+        # Initialize default state
+        self._initialize_state()
     
-    def remove_observer(self, callback: Callable[[], None]) -> None:
-        """
-        Remove an observer.
-        
-        Args:
-            callback: Function to remove from observers
-        """
-        with self._lock:
-            if callback in self._observers:
-                self._observers.remove(callback)
-                self.logger.debug(f"Removed observer: {callback.__name__}")
+    def _initialize_state(self):
+        """Initialize default state. Override in subclasses."""
+        self._state = {
+            'initialized': True,
+            'error': None,
+            'loading': False
+        }
     
-    def add_property_observer(self, property_name: str, callback: Callable[[Any], None]) -> None:
-        """
-        Add an observer for a specific property.
-        
-        Args:
-            property_name: Name of the property to observe
-            callback: Function to call when property changes (receives new value)
-        """
-        with self._lock:
-            if property_name not in self._property_observers:
-                self._property_observers[property_name] = []
-            
-            if callback not in self._property_observers[property_name]:
-                self._property_observers[property_name].append(callback)
-                self.logger.debug(f"Added property observer for '{property_name}': {callback.__name__}")
+    def add_observer(self, callback: Callable[[str, Any], None]) -> None:
+        """Add an observer callback for state changes."""
+        if callback not in self._observers:
+            self._observers.append(callback)
     
-    def remove_property_observer(self, property_name: str, callback: Callable[[Any], None]) -> None:
-        """
-        Remove a property observer.
-        
-        Args:
-            property_name: Name of the property
-            callback: Function to remove from property observers
-        """
-        with self._lock:
-            if property_name in self._property_observers:
-                if callback in self._property_observers[property_name]:
-                    self._property_observers[property_name].remove(callback)
-                    self.logger.debug(f"Removed property observer for '{property_name}': {callback.__name__}")
+    def remove_observer(self, callback: Callable[[str, Any], None]) -> None:
+        """Remove an observer callback."""
+        if callback in self._observers:
+            self._observers.remove(callback)
     
-    def notify_observers(self) -> None:
+    def notify_observers(self, key: Optional[str] = None, value: Any = None) -> None:
         """Notify all observers of state changes."""
-        with self._lock:
-            observers_copy = self._observers.copy()
-        
-        for observer in observers_copy:
+        for callback in self._observers:
             try:
-                observer()
+                callback(key, value)
             except Exception as e:
-                self.logger.error(f"Error notifying observer {observer.__name__}: {e}")
+                self.logger.error(f"Error notifying observer: {e}")
     
-    def notify_property_observers(self, property_name: str, new_value: Any) -> None:
-        """
-        Notify observers of a specific property change.
-        
-        Args:
-            property_name: Name of the changed property
-            new_value: New value of the property
-        """
-        with self._lock:
-            if property_name in self._property_observers:
-                observers_copy = self._property_observers[property_name].copy()
-            else:
-                observers_copy = []
-        
-        for observer in observers_copy:
-            try:
-                observer(new_value)
-            except Exception as e:
-                self.logger.error(f"Error notifying property observer for '{property_name}': {e}")
-    
-    def update_state(self, key: str, value: Any) -> None:
-        """
-        Update a state property and notify observers.
-        
-        Args:
-            key: State property name
-            value: New value
-        """
+    def update_state(self, key: str, value: Any, notify: bool = True) -> None:
+        """Update state and optionally notify observers."""
         old_value = self._state.get(key)
+        self._state[key] = value
         
-        if old_value != value:
-            self._state[key] = value
-            self.logger.debug(f"State updated: {key} = {value}")
-            
-            # Notify property-specific observers
-            self.notify_property_observers(key, value)
-            
-            # Notify general observers
-            self.notify_observers()
+        if notify and old_value != value:
+            self.notify_observers(key, value)
     
     def get_state(self, key: str, default: Any = None) -> Any:
-        """
-        Get a state property value.
-        
-        Args:
-            key: State property name
-            default: Default value if key doesn't exist
-            
-        Returns:
-            State property value or default
-        """
+        """Get state value by key."""
         return self._state.get(key, default)
     
-    def has_state(self, key: str) -> bool:
-        """
-        Check if a state property exists.
-        
-        Args:
-            key: State property name
-            
-        Returns:
-            True if property exists
-        """
-        return key in self._state
-    
-    def clear_state(self) -> None:
-        """Clear all state and notify observers."""
-        self._state.clear()
-        self.logger.debug("State cleared")
-        self.notify_observers()
-    
     def get_all_state(self) -> Dict[str, Any]:
-        """
-        Get a copy of all state data.
-        
-        Returns:
-            Dictionary containing all state data
-        """
+        """Get all state data."""
         return self._state.copy()
     
-    def set_loading(self, is_loading: bool) -> None:
-        """
-        Set loading state.
-        
-        Args:
-            is_loading: Whether the ViewModel is in loading state
-        """
-        self.update_state("loading", is_loading)
+    def clear_state(self) -> None:
+        """Clear all state data."""
+        self._state.clear()
+        self._initialize_state()
+        self.notify_observers()
     
-    def is_loading(self) -> bool:
-        """
-        Check if ViewModel is in loading state.
-        
-        Returns:
-            True if loading
-        """
-        return self.get_state("loading", False)
+    def set_loading(self, operation: str, loading: bool = True) -> None:
+        """Set loading state for a specific operation."""
+        self._loading_states[operation] = loading
+        self.update_state('loading', any(self._loading_states.values()))
+        self.update_state(f'loading_{operation}', loading)
     
-    def set_error(self, error_message: Optional[str]) -> None:
-        """
-        Set error state.
-        
-        Args:
-            error_message: Error message or None to clear error
-        """
-        self.update_state("error", error_message)
-        if error_message:
-            self.logger.error(f"ViewModel error: {error_message}")
+    def is_loading(self, operation: Optional[str] = None) -> bool:
+        """Check if currently loading (specific operation or any)."""
+        if operation:
+            return self._loading_states.get(operation, False)
+        return any(self._loading_states.values())
     
-    def get_error(self) -> Optional[str]:
-        """
-        Get current error message.
-        
-        Returns:
-            Error message or None
-        """
-        return self.get_state("error")
+    def set_error(self, error: Optional[str], operation: Optional[str] = None) -> None:
+        """Set error state."""
+        self.update_state('error', error)
+        if operation:
+            self.update_state(f'error_{operation}', error)
     
-    def has_error(self) -> bool:
-        """
-        Check if ViewModel has an error.
-        
-        Returns:
-            True if there's an error
-        """
-        return self.get_error() is not None
-    
-    def clear_error(self) -> None:
+    def clear_error(self, operation: Optional[str] = None) -> None:
         """Clear error state."""
-        self.set_error(None)
+        self.set_error(None, operation)
     
-    def execute_async_operation(
-        self,
-        operation: Callable[[], Any],
-        on_success: Optional[Callable[[Any], None]] = None,
-        on_error: Optional[Callable[[Exception], None]] = None,
-        loading_key: str = "loading"
-    ) -> None:
-        """
-        Execute an async operation with loading state management.
-        
-        Args:
-            operation: Function to execute
-            on_success: Callback for successful completion
-            on_error: Callback for error handling
-            loading_key: State key for loading indicator
-        """
+    def has_error(self, operation: Optional[str] = None) -> bool:
+        """Check if there's an error."""
+        if operation:
+            return bool(self.get_state(f'error_{operation}'))
+        return bool(self.get_state('error'))
+    
+    def execute_async_operation(self, operation_name: str, operation_func: Callable,
+                               on_success: Optional[Callable] = None,
+                               on_error: Optional[Callable] = None) -> None:
+        """Execute an async operation with loading and error handling."""
         from utils.async_executor import AsyncExecutor
         
-        def task():
-            return operation()
+        # Set loading state
+        self.set_loading(operation_name, True)
+        self.clear_error(operation_name)
         
-        def on_complete(result):
-            self.update_state(loading_key, False)
+        def success_handler(result):
+            self.set_loading(operation_name, False)
             if on_success:
                 on_success(result)
         
-        def on_operation_error(error):
-            self.update_state(loading_key, False)
-            self.set_error(str(error))
+        def error_handler(error):
+            self.set_loading(operation_name, False)
+            error_message = str(error)
+            self.set_error(error_message, operation_name)
+            self.logger.error(f"Error in {operation_name}: {error_message}")
             if on_error:
                 on_error(error)
         
-        self.update_state(loading_key, True)
-        self.clear_error()
+        AsyncExecutor.run_async(operation_func, success_handler, error_handler)
+    
+    def validate_input(self, data: Dict[str, Any], rules: Dict[str, Callable]) -> tuple[bool, Dict[str, str]]:
+        """Validate input data against rules."""
+        errors = {}
         
-        AsyncExecutor.run_async(task, on_complete, on_operation_error)
+        for field, validator in rules.items():
+            if field in data:
+                try:
+                    is_valid, error_message = validator(data[field])
+                    if not is_valid:
+                        errors[field] = error_message
+                except Exception as e:
+                    errors[field] = f"Validation error: {e}"
+        
+        return len(errors) == 0, errors
+    
+    def log_action(self, action: str, details: Optional[Dict[str, Any]] = None) -> None:
+        """Log user action for debugging and analytics."""
+        log_message = f"User action: {action}"
+        if details:
+            log_message += f" - {details}"
+        self.logger.info(log_message)
     
     def cleanup(self) -> None:
-        """Clean up resources and observers."""
-        with self._lock:
-            self._observers.clear()
-            self._property_observers.clear()
-            self._state.clear()
-        
+        """Cleanup resources when ViewModel is destroyed."""
+        self._observers.clear()
+        self._state.clear()
+        self._loading_states.clear()
         self.logger.debug("ViewModel cleaned up")
+    
+    def __del__(self):
+        """Destructor to ensure cleanup."""
+        try:
+            self.cleanup()
+        except Exception:
+            pass  # Ignore errors during cleanup
