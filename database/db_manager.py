@@ -7,6 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 import duckdb
 import logging
 
+from utils.error_handling import (
+    DatabaseError, ErrorContext, get_error_handler, 
+    with_error_handling
+)
+from utils.resource_manager import get_resource_manager
+
 
 class DatabaseManager:
     """Manages DuckDB connections and schema operations."""
@@ -59,8 +65,19 @@ class DatabaseManager:
     
     def execute_query(self, query: str, params: Tuple = ()) -> List[Dict[str, Any]]:
         """Execute a query and return results as list of dictionaries."""
+        context = ErrorContext(
+            operation="database_query",
+            component="DatabaseManager",
+            additional_data={'query': query[:100]}  # Truncate long queries
+        )
+        
         try:
             conn = self.get_connection()
+            
+            # Monitor resource usage
+            resource_manager = get_resource_manager()
+            resource_manager.memory_monitor.track_object(conn)
+            
             result = conn.execute(query, params).fetchall()
             
             # Get column names
@@ -71,7 +88,16 @@ class DatabaseManager:
             
         except Exception as e:
             self.logger.error(f"Query execution failed: {query}, params: {params}, error: {e}")
-            raise DatabaseError(f"Query execution failed: {e}")
+            
+            db_error = DatabaseError(
+                f"Query execution failed: {e}",
+                query=query[:100],  # Truncate for logging
+                context=context,
+                cause=e
+            )
+            
+            get_error_handler().handle_error(db_error, context, suppress=False)
+            raise db_error
     
     def execute_transaction(self, operations: List[Callable]) -> bool:
         """Execute multiple operations in a transaction."""

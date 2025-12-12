@@ -6,6 +6,13 @@ from repositories.base_repository import BaseRepository, RepositoryError
 import logging
 import time
 
+from utils.error_handling import (
+    GeneStudioError, ValidationError, ErrorContext, 
+    get_error_handler, with_error_handling
+)
+from utils.resource_manager import get_resource_manager, with_resource_management
+from utils.validators import get_validation_manager
+
 T = TypeVar('T')
 
 
@@ -17,6 +24,7 @@ class BaseService(ABC, Generic[T]):
         self.repository = repository
         self.logger = logging.getLogger(self.__class__.__name__)
     
+    @with_resource_management("service_operation")
     def execute_with_logging(self, operation: Callable[[], Any], operation_name: str = "operation") -> Tuple[bool, Any]:
         """
         Execute an operation with logging and error handling.
@@ -30,8 +38,20 @@ class BaseService(ABC, Generic[T]):
         """
         start_time = time.time()
         
+        context = ErrorContext(
+            operation=operation_name,
+            component=self.__class__.__name__
+        )
+        
         try:
             self.logger.info(f"Starting {operation_name}")
+            
+            # Check resource limits before operation
+            resource_manager = get_resource_manager()
+            violations = resource_manager.check_resource_limits()
+            if violations:
+                self.logger.warning(f"Resource limit violations detected: {violations}")
+            
             result = operation()
             
             execution_time = time.time() - start_time
@@ -42,26 +62,43 @@ class BaseService(ABC, Generic[T]):
         except ValidationError as e:
             execution_time = time.time() - start_time
             self.logger.warning(f"Validation error in {operation_name} after {execution_time:.3f}s: {e}")
-            return False, f"Validation error: {e}"
+            get_error_handler().handle_error(e, context, suppress=True)
+            return False, e.user_message
             
         except RepositoryError as e:
             execution_time = time.time() - start_time
             self.logger.error(f"Repository error in {operation_name} after {execution_time:.3f}s: {e}")
+            get_error_handler().handle_error(e, context, suppress=True)
             return False, f"Data access error: {e}"
             
         except ServiceError as e:
             execution_time = time.time() - start_time
             self.logger.error(f"Service error in {operation_name} after {execution_time:.3f}s: {e}")
+            get_error_handler().handle_error(e, context, suppress=True)
             return False, str(e)
+            
+        except GeneStudioError as e:
+            execution_time = time.time() - start_time
+            self.logger.error(f"GeneStudio error in {operation_name} after {execution_time:.3f}s: {e}")
+            get_error_handler().handle_error(e, context, suppress=True)
+            return False, e.user_message
             
         except Exception as e:
             execution_time = time.time() - start_time
             self.logger.error(f"Unexpected error in {operation_name} after {execution_time:.3f}s: {e}", exc_info=True)
-            return False, f"An unexpected error occurred: {e}"
+            
+            # Convert to GeneStudio error
+            gs_error = GeneStudioError(
+                message=f"Unexpected error in {operation_name}: {e}",
+                context=context,
+                cause=e
+            )
+            get_error_handler().handle_error(gs_error, context, suppress=True)
+            return False, gs_error.user_message
     
     def validate_input(self, data: Any, validation_rules: Optional[Callable[[Any], None]] = None) -> Tuple[bool, str]:
         """
-        Validate input data.
+        Validate input data using the validation manager.
         
         Args:
             data: Data to validate
@@ -70,10 +107,15 @@ class BaseService(ABC, Generic[T]):
         Returns:
             Tuple of (is_valid, error_message)
         """
+        context = ErrorContext(
+            operation="input_validation",
+            component=self.__class__.__name__
+        )
+        
         try:
             # Basic validation
             if data is None:
-                return False, "Data cannot be None"
+                raise ValidationError("Data cannot be None", context=context)
             
             # Custom validation if provided
             if validation_rules:
@@ -83,17 +125,40 @@ class BaseService(ABC, Generic[T]):
             if hasattr(data, 'validate'):
                 data.validate()
             
+            # Use validation manager for structured validation
+            validation_manager = get_validation_manager()
+            if hasattr(data, '__dict__'):
+                # Convert object to dict for validation
+                data_dict = data.__dict__ if hasattr(data, '__dict__') else {}
+                
+                # Determine validation type based on class name
+                class_name = data.__class__.__name__.lower()
+                if 'project' in class_name:
+                    result = validation_manager.validate_project(data_dict, context)
+                elif 'sequence' in class_name:
+                    result = validation_manager.validate_sequence(data_dict, context)
+                else:
+                    # Generic validation passed
+                    return True, ""
+                
+                if not result.is_valid:
+                    error_messages = result.get_error_messages()
+                    return False, "; ".join(error_messages)
+            
             return True, ""
             
         except ValidationError as e:
             self.logger.warning(f"Validation failed: {e}")
-            return False, str(e)
+            get_error_handler().handle_error(e, context, suppress=True)
+            return False, e.user_message
         except ValueError as e:
-            self.logger.warning(f"Value validation failed: {e}")
-            return False, str(e)
+            validation_error = ValidationError(f"Value validation failed: {e}", context=context, cause=e)
+            get_error_handler().handle_error(validation_error, context, suppress=True)
+            return False, validation_error.user_message
         except Exception as e:
-            self.logger.error(f"Unexpected validation error: {e}")
-            return False, f"Validation error: {e}"
+            validation_error = ValidationError(f"Unexpected validation error: {e}", context=context, cause=e)
+            get_error_handler().handle_error(validation_error, context, suppress=True)
+            return False, validation_error.user_message
     
     def log_operation(self, operation: str, entity_id: Optional[int] = None, **kwargs):
         """Log an operation for audit purposes."""
