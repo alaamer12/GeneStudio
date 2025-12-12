@@ -1,5 +1,8 @@
 # GeneStudio Pro - UX Patterns & Guidelines
 
+ALWAYS RUN FROM `.venv`. ie. `.venv\scripts\python <command>`
+IF YOU ARE GOING TO RUN THE GUI [ie. main.py] just compile it or RUN IT with time off to terminate if it passed without errors
+
 ## Loading States & User Feedback
 
 ### Always Show Loading States

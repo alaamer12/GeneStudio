@@ -1,5 +1,8 @@
 # GeneStudio Pro - Product Overview
 
+ALWAYS RUN FROM `.venv`. ie. `.venv\scripts\python <command>`
+IF YOU ARE GOING TO RUN THE GUI [ie. main.py] just compile it or RUN IT with time off to terminate if it passed without errors
+
 ## What is GeneStudio?
 
 GeneStudio is a modern desktop GUI application for DNA sequence analysis and bioinformatics algorithms. It's designed as an educational yet powerful tool that brings classical string-matching algorithms and biological sequence operations into a clean, intuitive interface.
