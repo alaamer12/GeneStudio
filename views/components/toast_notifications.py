@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Optional, List, Callable
 from enum import Enum
+from utils.theme_manager import get_theme_manager
 
 
 class ToastType(Enum):
@@ -45,43 +46,30 @@ class Toast(ctk.CTkFrame):
         self.animate_in()
     
     def _configure_appearance(self):
-        """Configure toast appearance based on type with theme-aligned styling."""
-        # Theme-aligned colors - subtle and professional
-        colors = {
-            ToastType.SUCCESS: {
-                "bg": ("gray90", "gray20"), 
-                "icon_bg": "#2fa572", 
-                "icon_text": "white"
-            },
-            ToastType.ERROR: {
-                "bg": ("gray90", "gray20"), 
-                "icon_bg": "#d42f2f", 
-                "icon_text": "white"
-            },
-            ToastType.INFO: {
-                "bg": ("gray90", "gray20"), 
-                "icon_bg": "#1f6aa5", 
-                "icon_text": "white"
-            },
-            ToastType.WARNING: {
-                "bg": ("gray90", "gray20"), 
-                "icon_bg": "#ffa500", 
-                "icon_text": "white"
-            }
+        """Configure toast appearance using theme manager."""
+        theme = get_theme_manager()
+        
+        # Get toast configuration from theme manager
+        toast_type_map = {
+            ToastType.SUCCESS: 'success',
+            ToastType.ERROR: 'error',
+            ToastType.INFO: 'info',
+            ToastType.WARNING: 'warning'
         }
         
-        self.color_config = colors.get(self.toast_type, colors[ToastType.INFO])
+        toast_type_str = toast_type_map.get(self.toast_type, 'info')
+        self.toast_config = theme.get_toast_config(toast_type_str)
         
-        # Configure with theme-aligned styling
+        # Configure with theme styling
         self.configure(
-            fg_color=self.color_config["bg"],
+            fg_color=self.toast_config['background_color'],
             border_width=1,
-            border_color=("gray70", "gray40"),
-            corner_radius=8
+            border_color=self.toast_config['border_color'],
+            corner_radius=self.toast_config['border_radius']
         )
     
     def _create_content(self):
-        """Create toast content with theme-aligned styling."""
+        """Create toast content using theme manager."""
         # Configure grid
         self.grid_columnconfigure(1, weight=1)
         
@@ -93,42 +81,42 @@ class Toast(ctk.CTkFrame):
             ToastType.WARNING: "⚠"
         }
         
-        # Circular icon with colored background
+        # Circular icon with themed colored background
         icon_frame = ctk.CTkFrame(
             self,
             width=28,
             height=28,
-            fg_color=self.color_config["icon_bg"],
+            fg_color=self.toast_config['icon_color'],
             corner_radius=14
         )
-        icon_frame.grid(row=0, column=0, padx=(16, 12), pady=16, sticky="w")
+        icon_frame.grid(row=0, column=0, padx=(self.toast_config['spacing'], 12), pady=self.toast_config['spacing'], sticky="w")
         icon_frame.grid_propagate(False)
         
         icon_label = ctk.CTkLabel(
             icon_frame,
             text=icons.get(self.toast_type, "ℹ"),
-            font=("Arial", 12, "bold"),
-            text_color=self.color_config["icon_text"]
+            font=(self.toast_config['font'][0], 12, "bold"),
+            text_color="white"
         )
         icon_label.place(relx=0.5, rely=0.5, anchor="center")
         
-        # Message with theme-aligned typography
+        # Message with themed typography
         self.message_label = ctk.CTkLabel(
             self,
             text=self.message,
-            font=("Arial", 12),
-            text_color=("gray10", "gray90"),
+            font=self.toast_config['font'],
+            text_color=self.toast_config['text_color'],
             wraplength=220,
             justify="left",
             anchor="w"
         )
-        self.message_label.grid(row=0, column=1, padx=(0, 12), pady=16, sticky="ew")
+        self.message_label.grid(row=0, column=1, padx=(0, 12), pady=self.toast_config['spacing'], sticky="ew")
         
-        # Close button with subtle styling
+        # Close button with themed styling
         close_button = ctk.CTkButton(
             self,
             text="×",
-            font=("Arial", 16, "bold"),
+            font=(self.toast_config['font'][0], 16, "bold"),
             text_color=("gray40", "gray60"),
             fg_color="transparent",
             hover_color=("gray80", "gray30"),
@@ -137,7 +125,7 @@ class Toast(ctk.CTkFrame):
             corner_radius=10,
             command=self.close
         )
-        close_button.grid(row=0, column=2, padx=(0, 16), pady=16, sticky="e")
+        close_button.grid(row=0, column=2, padx=(0, self.toast_config['spacing']), pady=self.toast_config['spacing'], sticky="e")
     
     def _on_enter(self, event):
         """Handle mouse enter."""

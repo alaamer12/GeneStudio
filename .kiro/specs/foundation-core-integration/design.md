@@ -162,6 +162,54 @@ class AsyncExecutor:
     def run_with_progress(task: Callable, progress_callback: Callable) -> Thread
 ```
 
+#### 6. Theme Manager
+```python
+class ThemeManager:
+    """Centralized theme management with caching and observer pattern."""
+    
+    def get_font(self, font_type: str = "default") -> tuple
+    def get_color(self, color_type: str) -> str
+    def update_font_settings(self, font_family: str, font_size: int) -> None
+    def add_observer(self, callback: Callable) -> None
+    def refresh_theme(self) -> None
+    def clear_cache(self) -> None
+```
+
+#### 7. Themed Components
+```python
+class ThemedComponent:
+    """Mixin class for components that need theme support."""
+    
+    def _apply_theme(self) -> None
+    def _update_fonts(self) -> None
+    def _update_colors(self) -> None
+    def _on_theme_changed(self, event: str, data: Any) -> None
+
+class ThemedLabel(ThemedComponent, ctk.CTkLabel):
+    """Themed label with automatic font management."""
+    
+class ThemedButton(ThemedComponent, ctk.CTkButton):
+    """Themed button with automatic font management."""
+    
+class ThemedEntry(ThemedComponent, ctk.CTkEntry):
+    """Themed entry with automatic font management."""
+```
+
+#### 8. Tooltip System
+```python
+class ThemedTooltip:
+    """Themed tooltip wrapper with consistent styling."""
+    
+    def __init__(self, widget, message: str, delay: float = 0.5)
+    def update_theme(self) -> None
+    def show(self) -> None
+    def hide(self) -> None
+
+def create_tooltip(widget, message: str, delay: float = 0.5) -> ThemedTooltip
+def create_help_tooltip(widget, help_text: str) -> ThemedTooltip
+def create_validation_tooltip(widget, validation_msg: str) -> ThemedTooltip
+```
+
 ### UX Components
 
 #### 1. Skeleton Loader Components
@@ -447,6 +495,30 @@ After analyzing all acceptance criteria, several properties can be consolidated 
 **Property 19: Dashboard loading states**
 *For any* dashboard data loading operation, skeleton loading screens should be displayed before actual statistics are shown
 **Validates: Requirements 8.4**
+
+**Property 20: Dynamic theme application**
+*For any* font setting change, all UI components should immediately update to use the new font configuration without requiring application restart
+**Validates: Requirements 9.1, 9.2**
+
+**Property 21: Automatic theme inheritance**
+*For any* newly created UI component, the component should automatically inherit the current theme configuration without requiring manual font specification
+**Validates: Requirements 9.3**
+
+**Property 22: Theme fallback handling**
+*For any* invalid or missing font settings, the system should fall back to default font configuration and continue functioning normally
+**Validates: Requirements 9.4**
+
+**Property 23: Font type differentiation**
+*For any* UI element type (default, heading, code, small), the appropriate font configuration should be applied based on the element's semantic purpose
+**Validates: Requirements 9.5**
+
+**Property 24: Contextual tooltip display**
+*For any* UI control with tooltip support, hovering for the specified delay should display relevant contextual information
+**Validates: Requirements 10.1, 10.2, 10.3, 10.4**
+
+**Property 25: Tooltip theme consistency**
+*For any* tooltip displayed in the application, the styling should match the current application theme and remain readable in all appearance modes
+**Validates: Requirements 10.5**
 
 ## Error Handling
 

@@ -138,6 +138,203 @@ EmptyResults(parent)    # Analysis suggestions
 3. **Contextual help** - Tooltips and hints for key features
 4. **Progressive disclosure** - Show advanced features after basic usage
 
+## Tooltips & Contextual Help
+
+### Tooltip Implementation
+Install tooltip support: `.venv\scripts\pip install tkinter-tooltip`
+
+```python
+import time
+import tkinter as tk
+import tkinter.ttk as ttk
+from tktooltip import ToolTip
+
+# Professional Usage Examples
+
+# 1. Basic static tooltip
+button = ctk.CTkButton(parent, text="Analyze")
+ToolTip(button, msg="Run sequence analysis with current parameters")
+
+# 2. Dynamic tooltip with function (NOTE: pass function itself, not return value)
+status_label = ctk.CTkLabel(parent, text="Status")
+ToolTip(status_label, msg=time.asctime, delay=0)  # Shows current time
+
+# 3. Advanced tooltip with theme styling
+entry_field = ctk.CTkEntry(parent)
+ToolTip(
+    widget=entry_field,
+    msg="Enter DNA sequence (A, T, G, C only)\nCase insensitive, spaces ignored",
+    delay=0.5,  # 500ms delay
+    follow=True,  # Follow mouse cursor
+    parent_kwargs={"bg": "#2b2b2b", "padx": 8, "pady": 4},
+    fg="#ffffff",
+    bg="#2b2b2b",
+    font=("Arial", 10)
+)
+
+# 4. Multi-line tooltip for complex explanations
+algorithm_menu = ctk.CTkOptionMenu(parent, values=["Boyer-Moore", "KMP"])
+ToolTip(
+    algorithm_menu,
+    msg="Boyer-Moore: Fast exact pattern matching algorithm\n"
+        "• Best for long patterns and large texts\n"
+        "• Preprocessing time: O(m + σ)\n"
+        "• Search time: O(n) average case",
+    delay=0.5,
+    parent_kwargs={"bg": "#2b2b2b", "padx": 10, "pady": 6}
+)
+
+# 5. Validation tooltip for input fields
+sequence_entry = ctk.CTkEntry(parent, placeholder_text="Enter sequence...")
+ToolTip(
+    sequence_entry,
+    msg="Valid DNA characters: A, T, G, C, N\n"
+        "• Case insensitive\n"
+        "• Spaces and line breaks ignored\n"
+        "• Minimum length: 1 nucleotide",
+    delay=0.3
+)
+
+# 6. Status tooltip with dynamic content
+def get_analysis_status():
+    return f"Analysis progress: {get_current_progress()}%\nEstimated time remaining: {get_eta()}"
+
+progress_icon = ctk.CTkLabel(parent, text="⚙️")
+ToolTip(progress_icon, msg=get_analysis_status, delay=0.2)
+```
+
+### When to Use Tooltips
+- **Complex controls** - Explain non-obvious functionality
+- **Technical terms** - Define bioinformatics terminology
+- **Input validation** - Show format requirements
+- **Keyboard shortcuts** - Display available shortcuts
+- **Status indicators** - Explain icon meanings
+- **Disabled controls** - Explain why something is disabled
+
+### Tooltip Guidelines
+- **Keep it concise** - Maximum 1-2 sentences
+- **Be helpful** - Provide actionable information
+- **Use consistent delay** - 500ms standard delay
+- **Match theme** - Use application colors and fonts
+- **Avoid redundancy** - Don't repeat obvious button text
+
+### Tooltip Categories & Implementation Patterns
+
+```python
+# 1. Implicit Tooltips (hover over existing controls)
+# Action tooltips for buttons
+save_button = ctk.CTkButton(parent, text="Save Project")
+ToolTip(save_button, msg="Save project (Ctrl+S)")
+
+analyze_button = ctk.CTkButton(parent, text="Run Analysis")
+ToolTip(analyze_button, msg="Execute selected algorithm on current sequence")
+
+# Input validation tooltips
+sequence_entry = ctk.CTkEntry(parent)
+ToolTip(sequence_entry, msg="Valid DNA: A, T, G, C, N (case insensitive)")
+
+# Status indicator tooltips
+status_icon = ctk.CTkLabel(parent, text="⚠️")
+ToolTip(status_icon, msg=lambda: f"Analysis running - {get_progress()}% complete")
+
+# 2. Explicit Tooltips (dedicated info buttons)
+def create_help_button_with_tooltip(parent, help_text):
+    """Create an explicit (i) info button with tooltip."""
+    info_button = ctk.CTkButton(
+        parent, 
+        text="ℹ️", 
+        width=20, 
+        height=20,
+        font=("Arial", 12)
+    )
+    ToolTip(
+        info_button,
+        msg=help_text,
+        delay=0.1,  # Faster for explicit help
+        parent_kwargs={"bg": "#2b2b2b", "padx": 10, "pady": 8}
+    )
+    return info_button
+
+# Usage of explicit help buttons
+gc_label = ctk.CTkLabel(parent, text="GC Content:")
+gc_help = create_help_button_with_tooltip(
+    parent,
+    "GC Content: Percentage of Guanine (G) and Cytosine (C) nucleotides\n\n"
+    "• Important for DNA stability and melting temperature\n"
+    "• Typical range: 30-70% in most organisms\n"
+    "• Higher GC content = higher melting temperature"
+)
+
+# Layout: Label + Help button
+gc_frame = ctk.CTkFrame(parent)
+gc_label.pack(side="left")
+gc_help.pack(side="left", padx=(5, 0))
+
+# 3. Technical term tooltips
+algorithm_label = ctk.CTkLabel(parent, text="Boyer-Moore Algorithm")
+ToolTip(
+    algorithm_label,
+    msg="Boyer-Moore: Efficient string searching algorithm\n\n"
+        "Key Features:\n"
+        "• Bad character rule: Skip characters not in pattern\n"
+        "• Good suffix rule: Skip based on pattern suffixes\n"
+        "• Time complexity: O(n/m) best case, O(nm) worst case\n"
+        "• Preprocessing: O(m + σ) where σ is alphabet size"
+)
+
+# 4. Disabled control explanations
+disabled_button = ctk.CTkButton(parent, text="Export Results", state="disabled")
+ToolTip(
+    disabled_button,
+    msg="Export not available: No analysis results to export\n"
+        "Run an analysis first to enable export functionality"
+)
+```
+
+### Tooltip Best Practices
+
+```python
+# ✅ DO: Use functions for dynamic content
+def get_file_info():
+    return f"File: {current_file}\nSize: {file_size}\nLast modified: {mod_time}"
+
+ToolTip(file_label, msg=get_file_info)
+
+# ❌ DON'T: Use return values (will be static)
+ToolTip(file_label, msg=get_file_info())  # Wrong - evaluates once
+
+# ✅ DO: Keep tooltips concise but informative
+ToolTip(button, msg="Save current project (Ctrl+S)")
+
+# ❌ DON'T: Write novels in tooltips
+ToolTip(button, msg="This button will save your current project to the database...")
+
+# ✅ DO: Use consistent delays
+TOOLTIP_DELAYS = {
+    "action": 0.5,      # Standard for buttons/actions
+    "validation": 0.3,   # Faster for input fields
+    "help": 0.1,        # Immediate for explicit help buttons
+    "status": 0.2       # Quick for status indicators
+}
+
+# ✅ DO: Match application theme
+def create_themed_tooltip(widget, message, delay=0.5):
+    """Create tooltip with consistent theme styling."""
+    return ToolTip(
+        widget,
+        msg=message,
+        delay=delay,
+        parent_kwargs={
+            "bg": "#2b2b2b",  # Match dark theme
+            "padx": 8,
+            "pady": 4
+        },
+        fg="#ffffff",
+        bg="#2b2b2b",
+        font=("Arial", 10)
+    )
+```
+
 ## Confirmation Dialogs
 
 ### When to Use Confirmations

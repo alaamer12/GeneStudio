@@ -118,3 +118,95 @@ This specification defines the Foundation & Core Integration milestone for GeneS
 3. WHEN a user views the activity feed THEN the GeneStudio SHALL display recent actions with timestamps and relevant details
 4. WHEN the dashboard loads data THEN the GeneStudio SHALL show skeleton loading screens before displaying actual statistics
 5. WHEN no projects exist THEN the GeneStudio SHALL display an empty state with guidance on creating the first project
+
+### Requirement 9
+
+**User Story:** As a user, I want the application to dynamically apply my font preferences across all UI components, so that I can customize the interface to my visual needs without requiring application restart.
+
+#### Acceptance Criteria
+
+1. WHEN a user changes font settings in the application preferences THEN the GeneStudio SHALL immediately update all UI components to use the new font configuration
+2. WHEN the application starts THEN the GeneStudio SHALL load font preferences from the settings service and apply them to all components automatically
+3. WHEN new UI components are created THEN the GeneStudio SHALL automatically apply the current theme configuration without requiring manual font specification
+4. WHEN font settings are invalid or missing THEN the GeneStudio SHALL fall back to default font configuration and display appropriate error messages
+5. WHEN multiple font types are configured THEN the GeneStudio SHALL apply appropriate fonts for different UI elements including default text, headings, code blocks, and small text
+
+### Requirement 9
+
+**User Story:** As a user, I want the application to use consistent fonts and styling that respond to my preferences, so that I can customize the interface to my needs and have a cohesive visual experience.
+
+#### Acceptance Criteria
+
+1. WHEN the application starts THEN the GeneStudio SHALL load font preferences from the settings system and apply them consistently across all UI components
+2. WHEN a user changes font settings in the preferences THEN the GeneStudio SHALL immediately update all visible UI components without requiring an application restart
+3. WHEN new UI components are created THEN the GeneStudio SHALL automatically apply the current theme settings without requiring manual font configuration
+4. WHEN the theme system loads font configurations THEN the GeneStudio SHALL cache font settings for performance and invalidate cache when settings change
+5. WHEN font settings are invalid or missing THEN the GeneStudio SHALL fall back to default font configurations and continue operating normally
+
+### Requirement 10
+
+**User Story:** As a user, I want contextual help and tooltips throughout the application, so that I can understand complex features and input requirements without consulting external documentation.
+
+#### Acceptance Criteria
+
+1. WHEN a user hovers over UI controls for more than 500ms THEN the GeneStudio SHALL display relevant tooltip information explaining the control's purpose or requirements
+2. WHEN a user hovers over technical terms or bioinformatics concepts THEN the GeneStudio SHALL display explanatory tooltips with clear definitions
+3. WHEN a user hovers over input fields THEN the GeneStudio SHALL display validation tooltips showing required format and acceptable values
+4. WHEN a user hovers over disabled controls THEN the GeneStudio SHALL display tooltips explaining why the control is currently unavailable
+5. WHEN tooltips are displayed THEN the GeneStudio SHALL use consistent styling that matches the application theme and remains readable in both light and dark modesty 19: Dashboard loading states**
+*For any* dashboard data loading operation, skeleton loading screens should be displayed before actual statistics are shown
+**Validates: Requirements 8.4**
+
+**Property 20: Theme consistency across components**
+*For any* UI component created in the application, the component should automatically inherit and display the current theme settings (fonts, colors) without manual configuration
+**Validates: Requirements 9.1, 9.3**
+
+**Property 21: Dynamic theme updates**
+*For any* change to theme settings, all visible UI components should immediately reflect the new settings without requiring application restart or component recreation
+**Validates: Requirements 9.2**
+
+**Property 22: Theme caching and performance**
+*For any* theme configuration request, the system should return cached values for performance, and cache should be invalidated and refreshed when settings change
+**Validates: Requirements 9.4**
+
+**Property 23: Theme fallback resilience**
+*For any* invalid or missing theme configuration, the system should fall back to default settings and continue operating without errors or visual corruption
+**Validates: Requirements 9.5**. AsyncExecutor
+```python
+class AsyncExecutor:
+    """Executes long-running operations asynchronously."""
+    
+    @staticmethod
+    def run_async(task: Callable, on_complete: Callable, on_error: Callable) -> Thread
+    @staticmethod
+    def run_with_progress(task: Callable, progress_callback: Callable) -> Thread
+```
+
+#### 6. Theme Manager
+```python
+class ThemeManager:
+    """Centralized theme management with caching and observer pattern."""
+    
+    def get_font(self, font_type: str = "default") -> tuple
+    def get_color(self, color_type: str) -> str
+    def update_font_settings(self, font_family: str, font_size: int) -> None
+    def add_observer(self, callback: Callable) -> None
+    def refresh_theme(self) -> None
+```
+
+#### 7. Themed Components
+```python
+class ThemedComponent:
+    """Mixin class for components that need theme support."""
+    
+    def _apply_theme(self) -> None
+    def _update_fonts(self) -> None
+    def _update_colors(self) -> None
+    def _on_theme_changed(self, event: str, data: Any) -> None
+
+class ThemedLabel(ThemedComponent, ctk.CTkLabel):
+    """Themed label with automatic font management."""
+    
+class ThemedButton(ThemedComponent, ctk.CTkButton):
+    """Themed button with automatic font management."""
+```

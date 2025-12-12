@@ -20,7 +20,8 @@ views/components/
 ├── toast_notifications.py  # ❌ NEW - Milestone 1
 ├── error_boundary.py       # ❌ NEW - Milestone 1
 ├── empty_states.py         # ❌ NEW - Milestone 1
-└── confirmation_dialog.py  # ❌ NEW - Milestone 1
+├── confirmation_dialog.py  # ❌ NEW - Milestone 1
+└── tooltips.py             # ❌ NEW - Contextual Help
 ```
 
 ---
@@ -377,6 +378,124 @@ class DashboardPage(ctk.CTkFrame):
 5. **Celebrate success** - Positive feedback for completed actions
 6. **Prevent accidental deletion** - Always confirm destructive actions
 7. **Guide empty states** - Tell users what to do next
+
+---
+
+---
+
+### 7. `tooltips.py` - Contextual Help System
+
+**Purpose:** Provide contextual help and explanations
+
+**Installation:** `.venv\scripts\pip install tkinter-tooltip`
+
+**Components:**
+```python
+from tktooltip import ToolTip
+
+class ThemedTooltip:
+    """Themed tooltip wrapper with consistent styling."""
+    
+def create_tooltip(widget, message: str, delay: float = 0.5):
+    """Create a themed tooltip for any widget."""
+    
+def create_help_tooltip(widget, help_text: str):
+    """Create help tooltip for complex controls."""
+    
+def create_validation_tooltip(widget, validation_msg: str):
+    """Create validation tooltip for input fields."""
+```
+
+**Professional Usage Examples:**
+```python
+import time
+from tktooltip import ToolTip
+
+# 1. Implicit Tooltips (hover over existing controls)
+# Basic static tooltip
+button = ctk.CTkButton(parent, text="Analyze")
+create_tooltip(button, "Run sequence analysis with current parameters")
+
+# Dynamic tooltip with function (NOTE: pass function, not return value)
+status_label = ctk.CTkLabel(parent, text="Status")
+ToolTip(status_label, msg=time.asctime, delay=0)  # Shows current time
+
+# Input validation tooltip
+sequence_entry = ctk.CTkEntry(parent)
+create_validation_tooltip(
+    sequence_entry, 
+    "Enter DNA sequence (A, T, G, C only)\nCase insensitive, spaces ignored"
+)
+
+# 2. Explicit Tooltips (dedicated info buttons)
+def create_help_button_with_tooltip(parent, help_text):
+    """Create an explicit (i) info button with tooltip."""
+    info_button = ctk.CTkButton(
+        parent, 
+        text="ℹ️", 
+        width=20, 
+        height=20,
+        font=("Arial", 12)
+    )
+    ToolTip(
+        info_button,
+        msg=help_text,
+        delay=0.1,  # Faster for explicit help
+        parent_kwargs={"bg": "#2b2b2b", "padx": 10, "pady": 8}
+    )
+    return info_button
+
+# Usage: Technical term with explicit help
+gc_label = ctk.CTkLabel(parent, text="GC Content:")
+gc_help = create_help_button_with_tooltip(
+    parent,
+    "GC Content: Percentage of G and C nucleotides\n\n"
+    "• Important for DNA stability\n"
+    "• Typical range: 30-70%\n"
+    "• Higher GC = higher melting temp"
+)
+
+# Layout side by side
+gc_frame = ctk.CTkFrame(parent)
+gc_label.pack(side="left")
+gc_help.pack(side="left", padx=(5, 0))
+
+# 3. Advanced tooltip with theme styling
+algorithm_menu = ctk.CTkOptionMenu(parent, values=["Boyer-Moore", "KMP"])
+ToolTip(
+    algorithm_menu,
+    msg="Boyer-Moore: Fast pattern matching\n"
+        "• Best for long patterns\n"
+        "• O(n) average case\n"
+        "• Preprocessing: O(m + σ)",
+    delay=0.5,
+    parent_kwargs={"bg": "#2b2b2b", "padx": 10, "pady": 6},
+    fg="#ffffff",
+    font=("Arial", 10)
+)
+```
+
+**Tooltip Categories:**
+- **Informational**: Explain technical terms and concepts
+- **Action**: Describe what buttons/controls do
+- **Validation**: Show input format requirements
+- **Status**: Explain current state or progress
+- **Help**: Provide detailed explanations for complex features
+
+**Features:**
+- Consistent theme-aligned styling
+- Configurable delay (default 500ms)
+- Follow mouse cursor option
+- Multi-line support
+- Automatic positioning
+
+**When to Use Tooltips:**
+- Complex controls that aren't self-explanatory
+- Technical bioinformatics terminology
+- Input field format requirements
+- Keyboard shortcuts display
+- Status indicator explanations
+- Disabled control explanations
 
 ---
 

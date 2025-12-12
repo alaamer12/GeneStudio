@@ -137,7 +137,88 @@ IF YOU ARE GOING TO RUN THE GUI [ie. main.py] just compile it or RUN IT with tim
   - **Validates: Requirements 8.4**
 
 
-- [ ] 4. Error Handling, Resource Management, and Final Integration
+- [ ] 4. Dynamic Theme System and Contextual Help - Centralized Styling and Tooltips
+
+
+
+
+
+
+  - Create ThemeManager singleton with caching and observer pattern for font/color configuration
+  - Implement ThemedComponent mixin class with automatic theme application and change detection
+  - Create themed widget classes (ThemedLabel, ThemedButton, ThemedEntry, etc.) as drop-in replacements
+  - Update toast notification system to use dynamic fonts instead of hardcoded values
+  - Create FontSettingsPanel component for user font preference configuration with live preview
+  - Integrate theme system with SettingsService for persistent font preferences
+  - Install tkinter-tooltip dependency and create ThemedTooltip wrapper with consistent styling
+  - Create tooltip utility functions for different tooltip types (help, validation, status, explicit info buttons)
+  - Add contextual tooltips to complex UI controls and technical terminology throughout the application
+  - Update existing UI components to use themed variants where fonts are currently hardcoded
+  - Update all pages with implicit tooltips for buttons, inputs, and status indicators
+  - Add explicit info button tooltips for complex bioinformatics concepts and technical terms
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 10.1, 10.2, 10.3, 10.4, 10.5_
+
+- [ ] 4.7 Update Dashboard Page with tooltips
+  - Add implicit tooltips to all action buttons (Create Project, Import Data, etc.)
+  - Add status tooltips to statistics cards showing detailed information
+  - Add explicit info button tooltips for dashboard metrics explanations
+  - Add validation tooltips to any input fields or search boxes
+
+- [ ] 4.8 Update Projects Page with tooltips
+  - Add implicit tooltips to project management buttons (Create, Delete, Archive, etc.)
+  - Add status tooltips to project status indicators and progress bars
+  - Add validation tooltips to project creation form fields
+  - Add explicit info button tooltips for project types and metadata fields
+
+- [ ] 4.9 Update Workspace Page with tooltips
+  - Add implicit tooltips to file operation buttons (Import FASTA, Export, Save, etc.)
+  - Add validation tooltips to sequence input fields showing format requirements
+  - Add explicit info button tooltips for file format explanations and sequence types
+  - Add status tooltips to file browser showing file information and metadata
+
+- [ ] 4.10 Update Analysis Page with tooltips
+  - Add implicit tooltips to analysis control buttons (Run, Stop, Clear, etc.)
+  - Add validation tooltips to parameter input fields showing acceptable ranges and formats
+  - Add explicit info button tooltips for algorithm explanations and parameter descriptions
+  - Add status tooltips to analysis progress indicators and result displays
+
+- [ ] 4.11 Update Pattern Matching Page with tooltips
+  - Add implicit tooltips to search and matching control buttons
+  - Add validation tooltips to pattern input fields showing syntax requirements
+  - Add explicit info button tooltips for algorithm comparisons and complexity explanations
+  - Add status tooltips to match result indicators and performance metrics
+
+- [ ] 4.12 Update Settings Page with tooltips
+  - Add implicit tooltips to all configuration buttons and controls
+  - Add validation tooltips to preference input fields showing valid options
+  - Add explicit info button tooltips for advanced settings and technical configurations
+  - Add status tooltips to setting indicators showing current values and effects
+
+- [ ]* 4.1 Write property test for dynamic theme application
+  - **Property 20: Dynamic theme application**
+  - **Validates: Requirements 9.1, 9.2**
+
+- [ ]* 4.2 Write property test for automatic theme inheritance
+  - **Property 21: Automatic theme inheritance**
+  - **Validates: Requirements 9.3**
+
+- [ ]* 4.3 Write property test for theme fallback handling
+  - **Property 22: Theme fallback handling**
+  - **Validates: Requirements 9.4**
+
+- [ ]* 4.4 Write property test for font type differentiation
+  - **Property 23: Font type differentiation**
+  - **Validates: Requirements 9.5**
+
+- [ ]* 4.5 Write property test for contextual tooltip display
+  - **Property 24: Contextual tooltip display**
+  - **Validates: Requirements 10.1, 10.2, 10.3, 10.4**
+
+- [ ]* 4.6 Write property test for tooltip theme consistency
+  - **Property 25: Tooltip theme consistency**
+  - **Validates: Requirements 10.5**
+
+- [ ] 5. Error Handling, Resource Management, and Final Integration
 
 
 
@@ -152,18 +233,18 @@ IF YOU ARE GOING TO RUN THE GUI [ie. main.py] just compile it or RUN IT with tim
   - Ensure all tests pass and system integration is complete
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, All requirements validation_
 
-- [ ]* 4.1 Write property test for resource management
+- [ ]* 5.1 Write property test for resource management
   - **Property 15: Resource management**
   - **Validates: Requirements 6.5**
 
-- [ ]* 4.2 Write property test for network failure handling
+- [ ]* 5.2 Write property test for network failure handling
   - **Property 16: Network failure handling**
   - **Validates: Requirements 6.4**
 
-- [ ]* 4.3 Write integration tests for complete workflows
+- [ ]* 5.3 Write integration tests for complete workflows
   - Create end-to-end tests for project creation, FASTA import, and analysis execution
   - Test error recovery scenarios and user feedback mechanisms
   - Validate data persistence across application restarts
 
-- [ ] 4.4 Final checkpoint - Ensure all tests pass
+- [ ] 5.4 Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
