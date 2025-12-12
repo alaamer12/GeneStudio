@@ -82,23 +82,23 @@ class Toast(ctk.CTkFrame):
         }
         
         # Circular icon with themed colored background
-        icon_frame = ctk.CTkFrame(
+        self.icon_frame = ctk.CTkFrame(
             self,
             width=28,
             height=28,
             fg_color=self.toast_config['icon_color'],
             corner_radius=14
         )
-        icon_frame.grid(row=0, column=0, padx=(self.toast_config['spacing'], 12), pady=self.toast_config['spacing'], sticky="w")
-        icon_frame.grid_propagate(False)
+        self.icon_frame.grid(row=0, column=0, padx=(self.toast_config['spacing'], 12), pady=self.toast_config['spacing'], sticky="w")
+        self.icon_frame.grid_propagate(False)
         
-        icon_label = ctk.CTkLabel(
-            icon_frame,
+        self.icon_label = ctk.CTkLabel(
+            self.icon_frame,
             text=icons.get(self.toast_type, "ℹ"),
             font=(self.toast_config['font'][0], 12, "bold"),
             text_color="white"
         )
-        icon_label.place(relx=0.5, rely=0.5, anchor="center")
+        self.icon_label.place(relx=0.5, rely=0.5, anchor="center")
         
         # Message with themed typography
         self.message_label = ctk.CTkLabel(
@@ -113,7 +113,7 @@ class Toast(ctk.CTkFrame):
         self.message_label.grid(row=0, column=1, padx=(0, 12), pady=self.toast_config['spacing'], sticky="ew")
         
         # Close button with themed styling
-        close_button = ctk.CTkButton(
+        self.close_button = ctk.CTkButton(
             self,
             text="×",
             font=(self.toast_config['font'][0], 16, "bold"),
@@ -125,7 +125,48 @@ class Toast(ctk.CTkFrame):
             corner_radius=10,
             command=self.close
         )
-        close_button.grid(row=0, column=2, padx=(0, self.toast_config['spacing']), pady=self.toast_config['spacing'], sticky="e")
+        self.close_button.grid(row=0, column=2, padx=(0, self.toast_config['spacing']), pady=self.toast_config['spacing'], sticky="e")
+        
+        # Register for theme changes to update fonts dynamically
+        theme = get_theme_manager()
+        theme.add_observer(self._update_fonts)
+    
+    def _update_fonts(self):
+        """Update fonts when theme changes."""
+        try:
+            # Get updated toast configuration
+            theme = get_theme_manager()
+            toast_type_map = {
+                ToastType.SUCCESS: 'success',
+                ToastType.ERROR: 'error',
+                ToastType.INFO: 'info',
+                ToastType.WARNING: 'warning'
+            }
+            
+            toast_type_str = toast_type_map.get(self.toast_type, 'info')
+            updated_config = theme.get_toast_config(toast_type_str)
+            
+            # Update fonts
+            if hasattr(self, 'message_label'):
+                self.message_label.configure(font=updated_config['font'])
+            
+            if hasattr(self, 'icon_label'):
+                self.icon_label.configure(font=(updated_config['font'][0], 12, "bold"))
+            
+            if hasattr(self, 'close_button'):
+                self.close_button.configure(font=(updated_config['font'][0], 16, "bold"))
+                
+        except Exception as e:
+            print(f"Error updating toast fonts: {e}")
+    
+    def destroy(self):
+        """Clean up theme observer when toast is destroyed."""
+        try:
+            theme = get_theme_manager()
+            theme.remove_observer(self._update_fonts)
+        except Exception:
+            pass
+        super().destroy()
     
     def _on_enter(self, event):
         """Handle mouse enter."""

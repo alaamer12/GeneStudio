@@ -8,6 +8,10 @@ from views.components import (
     show_success, show_error, show_confirm_dialog, show_input_dialog
 )
 from viewmodels.project_viewmodel import ProjectViewModel
+from utils.themed_tooltips import (
+    create_tooltip, create_validation_tooltip, create_info_button_tooltip,
+    create_info_button_with_tooltip, TooltipTemplates, create_status_tooltip
+)
 
 
 class ProjectsPage(ctk.CTkFrame):
@@ -38,13 +42,32 @@ class ProjectsPage(ctk.CTkFrame):
         header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=20)
         header_frame.grid_columnconfigure(0, weight=1)
         
-        # Title
+        # Title with info button
+        title_container = ctk.CTkFrame(header_frame, fg_color="transparent")
+        title_container.grid(row=0, column=0, sticky="w")
+        
         title_label = ctk.CTkLabel(
-            header_frame,
+            title_container,
             text="Project Management",
             font=("Arial", 24, "bold")
         )
-        title_label.grid(row=0, column=0, sticky="w")
+        title_label.pack(side="left", anchor="w")
+        
+        # Info button for project management explanation
+        info_button, info_tooltip = create_info_button_with_tooltip(
+            title_container,
+            "Project Management\n\n"
+            "Projects organize your bioinformatics work:\n"
+            "• Container for related sequences and analyses\n"
+            "• Track progress with status indicators (Active, Archived, Completed)\n"
+            "• Manage metadata like creation dates and descriptions\n"
+            "• Bulk operations for efficient workflow management\n\n"
+            "Project Types:\n"
+            "• Sequence Analysis: General sequence processing\n"
+            "• Genome Assembly: Large-scale genome projects\n"
+            "• Comparative Analysis: Multi-sequence comparisons"
+        )
+        info_button.pack(side="left", padx=(10, 0))
         
         # Action buttons
         actions_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
@@ -65,6 +88,20 @@ class ProjectsPage(ctk.CTkFrame):
             command=self._handle_import_project
         )
         self.import_button.pack(side="right", padx=5)
+        
+        # Add tooltips to action buttons
+        create_tooltip(
+            self.create_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Create a new bioinformatics project to organize sequences and analyses",
+                "Ctrl+N"
+            )
+        )
+        
+        create_tooltip(
+            self.import_button,
+            "Import existing project data from backup files or other GeneStudio installations"
+        )
     
     def _create_toolbar(self):
         """Create toolbar with search and filters."""
@@ -103,6 +140,32 @@ class ProjectsPage(ctk.CTkFrame):
         )
         self.sort_option.pack(side="left", padx=5, pady=10)
         
+        # Add tooltips to search and filter controls
+        create_validation_tooltip(
+            self.search_entry,
+            "Search projects by name or description. Search is case-insensitive and updates as you type."
+        )
+        
+        create_tooltip(
+            self.status_filter,
+            TooltipTemplates.bioinformatics_term(
+                "Project Status Filter",
+                "Filter projects by their current status:",
+                "• Active: Currently being worked on\n"
+                "• Archived: Stored for reference, not actively used\n"
+                "• Completed: Finished projects with final results"
+            )
+        )
+        
+        create_tooltip(
+            self.sort_option,
+            "Sort projects by different criteria:\n"
+            "• Modified Date: Most recently changed first\n"
+            "• Created Date: Newest projects first\n"
+            "• Name: Alphabetical order\n"
+            "• Status: Group by status (Active, Archived, Completed)"
+        )
+        
         # Right side - bulk actions
         right_frame = ctk.CTkFrame(toolbar_frame, fg_color="transparent")
         right_frame.grid(row=0, column=1, sticky="e")
@@ -124,6 +187,22 @@ class ProjectsPage(ctk.CTkFrame):
             command=self._handle_archive_selected
         )
         self.archive_selected_button.pack(side="right", padx=5, pady=10)
+        
+        # Add tooltips to bulk action buttons
+        create_tooltip(
+            self.delete_selected_button,
+            TooltipTemplates.disabled_reason(
+                "Delete Selected Projects",
+                "Permanently remove selected projects and all their data",
+                "Select projects by clicking on them first. This action cannot be undone."
+            )
+        )
+        
+        create_tooltip(
+            self.archive_selected_button,
+            "Archive selected projects to remove them from active view while preserving all data. "
+            "Archived projects can be restored later."
+        )
     
     def _create_content_area(self):
         """Create main content area."""
@@ -230,6 +309,17 @@ class ProjectsPage(ctk.CTkFrame):
         )
         status_label.grid(row=0, column=1, sticky="e", padx=(10, 0))
         
+        # Add status tooltip
+        status_descriptions = {
+            'active': 'Active project - currently being worked on with ongoing analyses',
+            'archived': 'Archived project - stored for reference, not actively used',
+            'completed': 'Completed project - finished with final results available'
+        }
+        create_status_tooltip(
+            status_label,
+            lambda: f"Status: {project.status.title()}\n\n{status_descriptions.get(project.status, 'Unknown status')}"
+        )
+        
         # Description
         if project.description:
             desc_label = ctk.CTkLabel(
@@ -294,6 +384,17 @@ class ProjectsPage(ctk.CTkFrame):
             command=lambda p=project: self._show_project_menu(p)
         )
         more_button.pack(side="right")
+        
+        # Add tooltips to project action buttons
+        create_tooltip(
+            open_button,
+            f"Open '{project.name}' project to view sequences, run analyses, and manage data"
+        )
+        
+        create_tooltip(
+            more_button,
+            "More actions: Edit project details, duplicate, archive, or delete this project"
+        )
         
         # Make card clickable for selection
         def on_card_click(event, proj=project):
@@ -550,6 +651,33 @@ class CreateProjectDialog(ctk.CTkToplevel):
         self.desc_text = ctk.CTkTextbox(main_frame, height=100)
         self.desc_text.pack(fill="x", pady=(0, 20))
         
+        # Add tooltips to form fields
+        create_validation_tooltip(
+            self.name_entry,
+            TooltipTemplates.validation_format(
+                "Project Name",
+                "Unique identifier for your project (required)",
+                "My DNA Analysis Project"
+            )
+        )
+        
+        create_tooltip(
+            self.type_option,
+            TooltipTemplates.bioinformatics_term(
+                "Project Types",
+                "Choose the type that best matches your research:",
+                "• Sequence Analysis: General sequence processing and analysis\n"
+                "• Genome Assembly: Large-scale genome reconstruction projects\n"
+                "• Comparative Analysis: Multi-sequence comparison studies"
+            )
+        )
+        
+        create_validation_tooltip(
+            self.desc_text,
+            "Optional description of your project goals, methods, or notes. "
+            "This helps organize your work and provides context for collaborators."
+        )
+        
         # Buttons
         buttons_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         buttons_frame.pack(fill="x")
@@ -569,6 +697,10 @@ class CreateProjectDialog(ctk.CTkToplevel):
             command=self._handle_create
         )
         create_button.pack(side="right")
+        
+        # Add tooltips to dialog buttons
+        create_tooltip(cancel_button, "Cancel project creation and close dialog (Esc)")
+        create_tooltip(create_button, "Create new project with the specified settings (Enter)")
         
         # Focus name entry
         self.after(100, lambda: self.name_entry.focus_set())

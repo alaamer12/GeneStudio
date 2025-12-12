@@ -7,6 +7,10 @@ from views.components import (
     EmptyAnalyses, SkeletonText, show_success, show_error
 )
 from viewmodels.analysis_viewmodel import AnalysisViewModel
+from utils.themed_tooltips import (
+    create_tooltip, create_validation_tooltip, create_info_button_tooltip,
+    create_info_button_with_tooltip, TooltipTemplates, create_status_tooltip
+)
 
 
 class AnalysisPage(ctk.CTkFrame):
@@ -35,12 +39,31 @@ class AnalysisPage(ctk.CTkFrame):
         self.sidebar = ctk.CTkFrame(self, width=220)
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
         
-        # Header
-        ctk.CTkLabel(
-            self.sidebar,
+        # Header with info button
+        header_container = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        header_container.pack(padx=15, pady=15, anchor="w", fill="x")
+        
+        header_label = ctk.CTkLabel(
+            header_container,
             text="Analysis Types",
             font=("Arial", 14, "bold")
-        ).pack(padx=15, pady=15, anchor="w")
+        )
+        header_label.pack(side="left", anchor="w")
+        
+        # Info button for analysis types
+        analysis_info_button, analysis_info_tooltip = create_info_button_with_tooltip(
+            header_container,
+            "Bioinformatics Analysis Types\n\n"
+            "Available computational analyses:\n"
+            "• GC Content: Calculate nucleotide composition\n"
+            "• Pattern Matching: Find sequence motifs using Boyer-Moore\n"
+            "• Translation: Convert DNA/RNA to amino acids\n"
+            "• Reverse Complement: Generate complementary strand\n"
+            "• Suffix Array: Build search index for pattern finding\n"
+            "• Overlap Graph: Analyze sequence relationships\n\n"
+            "Each analysis has configurable parameters and validates input sequences."
+        )
+        analysis_info_button.pack(side="left", padx=(10, 0))
         
         # Analysis type buttons (will be populated from ViewModel)
         self.analysis_buttons_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
@@ -124,6 +147,44 @@ class AnalysisPage(ctk.CTkFrame):
                 command=lambda at=analysis_type: self._select_analysis_type(at)
             )
             button.pack(fill="x", pady=2)
+            
+            # Add tooltip to analysis type button
+            analysis_tooltips = {
+                'gc_content': TooltipTemplates.algorithm_info(
+                    'GC Content Analysis',
+                    'Calculates the percentage of Guanine (G) and Cytosine (C) nucleotides in DNA sequences.',
+                    'O(n) where n is sequence length'
+                ),
+                'pattern_matching': TooltipTemplates.algorithm_info(
+                    'Pattern Matching',
+                    'Finds occurrences of specific patterns in sequences using Boyer-Moore algorithm.',
+                    'O(n/m) average case, O(nm) worst case'
+                ),
+                'translation': TooltipTemplates.algorithm_info(
+                    'DNA/RNA Translation',
+                    'Converts nucleotide sequences to amino acid sequences using genetic code.',
+                    'O(n) where n is sequence length'
+                ),
+                'reverse_complement': TooltipTemplates.algorithm_info(
+                    'Reverse Complement',
+                    'Generates the reverse complement of DNA sequences (A↔T, G↔C).',
+                    'O(n) where n is sequence length'
+                ),
+                'suffix_array': TooltipTemplates.algorithm_info(
+                    'Suffix Array Construction',
+                    'Builds suffix array for efficient pattern searching and sequence analysis.',
+                    'O(n log n) construction, O(m log n) search'
+                ),
+                'overlap_graph': TooltipTemplates.algorithm_info(
+                    'Overlap Graph Analysis',
+                    'Constructs overlap graph showing relationships between sequence fragments.',
+                    'O(n²) for n sequences'
+                )
+            }
+            
+            analysis_id = analysis_type.get('id', '')
+            tooltip_text = analysis_tooltips.get(analysis_id, analysis_type.get('description', 'Click to select this analysis type'))
+            create_tooltip(button, tooltip_text)
     
     def _select_analysis_type(self, analysis_type: Dict):
         """Select an analysis type."""
@@ -165,6 +226,13 @@ class AnalysisPage(ctk.CTkFrame):
         )
         self.run_button.pack(side="right")
         
+        # Add tooltip to run button
+        create_tooltip(
+            self.run_button,
+            "Execute the selected analysis on chosen sequences with current parameters. "
+            "Requires at least one sequence to be selected and valid parameters."
+        )
+        
         # Description
         if analysis_type.get('description'):
             desc_label = ctk.CTkLabel(
@@ -191,11 +259,29 @@ class AnalysisPage(ctk.CTkFrame):
         seq_frame = ctk.CTkFrame(self.main_area)
         seq_frame.pack(fill="x", padx=20, pady=(0, 20))
         
-        ctk.CTkLabel(
-            seq_frame,
+        # Sequence selection header with info button
+        seq_header_container = ctk.CTkFrame(seq_frame, fg_color="transparent")
+        seq_header_container.pack(padx=20, pady=(15, 10), anchor="w", fill="x")
+        
+        seq_header_label = ctk.CTkLabel(
+            seq_header_container,
             text="Sequence Selection",
             font=("Arial", 14, "bold")
-        ).pack(padx=20, pady=(15, 10), anchor="w")
+        )
+        seq_header_label.pack(side="left", anchor="w")
+        
+        # Info button for sequence selection
+        seq_info_button, seq_info_tooltip = create_info_button_with_tooltip(
+            seq_header_container,
+            "Sequence Selection\n\n"
+            "Choose which sequences to analyze:\n"
+            "• Select one or more sequences from your project\n"
+            "• Each sequence shows header and length information\n"
+            "• Analysis will be performed on all selected sequences\n"
+            "• Results will be generated for each sequence individually\n\n"
+            "Note: Some analyses may have sequence type requirements (DNA, RNA, or Protein)."
+        )
+        seq_info_button.pack(side="left", padx=(10, 0))
         
         # Available sequences (would be populated from ViewModel)
         available_sequences = self.viewmodel.get_state('available_sequences', [])
@@ -220,17 +306,48 @@ class AnalysisPage(ctk.CTkFrame):
                     command=lambda s=sequence: self._toggle_sequence_selection(s)
                 )
                 seq_checkbox.pack(anchor="w", pady=2)
+                
+                # Add tooltip to sequence checkbox
+                create_tooltip(
+                    seq_checkbox,
+                    f"Sequence: {sequence.header}\n"
+                    f"Length: {len(sequence.sequence)} base pairs\n"
+                    f"Type: {getattr(sequence, 'sequence_type', 'Unknown').upper()}\n\n"
+                    f"Click to include this sequence in the analysis."
+                )
     
     def _create_parameter_configuration(self, analysis_type: Dict):
         """Create parameter configuration interface."""
         params_frame = ctk.CTkFrame(self.main_area)
         params_frame.pack(fill="x", padx=20, pady=(0, 20))
         
-        ctk.CTkLabel(
-            params_frame,
+        # Parameters header with info button
+        params_header_container = ctk.CTkFrame(params_frame, fg_color="transparent")
+        params_header_container.pack(padx=20, pady=(15, 10), anchor="w", fill="x")
+        
+        params_header_label = ctk.CTkLabel(
+            params_header_container,
             text="Parameters",
             font=("Arial", 14, "bold")
-        ).pack(padx=20, pady=(15, 10), anchor="w")
+        )
+        params_header_label.pack(side="left", anchor="w")
+        
+        # Info button for parameters
+        params_info_button, params_info_tooltip = create_info_button_with_tooltip(
+            params_header_container,
+            "Analysis Parameters\n\n"
+            "Configure algorithm-specific settings:\n"
+            "• Required parameters (*) must be provided\n"
+            "• Optional parameters have default values\n"
+            "• Hover over fields for format requirements\n"
+            "• Invalid parameters will show error messages\n\n"
+            "Parameter types:\n"
+            "• Text: String values (patterns, names)\n"
+            "• Numbers: Integer or decimal values\n"
+            "• Choices: Select from predefined options\n"
+            "• Checkboxes: Enable/disable features"
+        )
+        params_info_button.pack(side="left", padx=(10, 0))
         
         # Parameter widgets
         self.parameter_widgets = {}
@@ -268,6 +385,12 @@ class AnalysisPage(ctk.CTkFrame):
             )
             if param.get('default'):
                 widget.insert(0, str(param['default']))
+            
+            # Add validation tooltip for string parameters
+            validation_text = param.get('validation_help', f"Enter {param['label'].lower()}")
+            if param.get('example'):
+                validation_text += f"\nExample: {param['example']}"
+            create_validation_tooltip(widget, validation_text)
         
         elif param_type == 'integer':
             widget = ctk.CTkEntry(
@@ -277,6 +400,18 @@ class AnalysisPage(ctk.CTkFrame):
             )
             if param.get('default') is not None:
                 widget.insert(0, str(param['default']))
+            
+            # Add validation tooltip for integer parameters
+            min_val = param.get('min', 'No minimum')
+            max_val = param.get('max', 'No maximum')
+            create_validation_tooltip(
+                widget,
+                TooltipTemplates.validation_format(
+                    param['label'],
+                    f"Integer value (Min: {min_val}, Max: {max_val})",
+                    str(param.get('default', '1'))
+                )
+            )
         
         elif param_type == 'boolean':
             widget = ctk.CTkCheckBox(
@@ -286,6 +421,12 @@ class AnalysisPage(ctk.CTkFrame):
             )
             if param.get('default', False):
                 widget.select()
+            
+            # Add tooltip for boolean parameters
+            create_tooltip(
+                widget,
+                f"{param['label']}: {param.get('description', 'Enable or disable this option')}"
+            )
         
         elif param_type == 'choice':
             choices = param.get('choices', [])
@@ -296,6 +437,14 @@ class AnalysisPage(ctk.CTkFrame):
             )
             if param.get('default') is not None:
                 widget.set(str(param['default']))
+            
+            # Add tooltip for choice parameters
+            choices_text = ', '.join(str(c) for c in choices)
+            create_tooltip(
+                widget,
+                f"{param['label']}: Select from available options\n"
+                f"Choices: {choices_text}"
+            )
         
         else:
             # Default to string entry
@@ -303,6 +452,12 @@ class AnalysisPage(ctk.CTkFrame):
                 param_frame,
                 placeholder_text=param.get('description', ''),
                 height=30
+            )
+            
+            # Add generic tooltip
+            create_validation_tooltip(
+                widget,
+                f"Enter value for {param['label']}: {param.get('description', 'Parameter value')}"
             )
         
         widget.pack(fill="x", pady=(0, 5))
@@ -329,20 +484,45 @@ class AnalysisPage(ctk.CTkFrame):
         self.results_frame = ctk.CTkFrame(self.main_area)
         self.results_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
-        # Results header
+        # Results header with info button
         results_header = ctk.CTkFrame(self.results_frame, fg_color="transparent")
         results_header.pack(fill="x", padx=20, pady=(15, 10))
         
-        ctk.CTkLabel(
+        results_header_label = ctk.CTkLabel(
             results_header,
             text="Results",
             font=("Arial", 14, "bold")
-        ).pack(side="left")
+        )
+        results_header_label.pack(side="left")
+        
+        # Info button for results
+        results_info_button, results_info_tooltip = create_info_button_with_tooltip(
+            results_header,
+            "Analysis Results\n\n"
+            "View computational analysis outputs:\n"
+            "• Results appear after successful analysis execution\n"
+            "• Each selected sequence generates individual results\n"
+            "• Progress bar shows analysis status during execution\n"
+            "• Results can be exported to various formats\n\n"
+            "Result types:\n"
+            "• Numerical values (GC content, match counts)\n"
+            "• Sequence data (translations, complements)\n"
+            "• Structural data (graphs, arrays)\n"
+            "• Performance metrics (execution time, memory usage)"
+        )
+        results_info_button.pack(side="left", padx=(10, 0))
         
         # Progress bar (initially hidden)
         self.progress_bar = LinearProgress(
             results_header,
             mode="indeterminate"
+        )
+        
+        # Add tooltip to progress bar
+        create_status_tooltip(
+            self.progress_bar,
+            lambda: "Analysis in progress... Please wait for completion. "
+                    "Complex analyses may take several minutes depending on sequence length and parameters."
         )
         
         # Results content
@@ -352,6 +532,15 @@ class AnalysisPage(ctk.CTkFrame):
             state="disabled"
         )
         self.results_text.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # Add tooltip to results text area
+        create_status_tooltip(
+            self.results_text,
+            lambda: "Analysis Results Display\n\n"
+                    "Shows formatted output from bioinformatics analyses. "
+                    "Results are displayed in monospace font for proper alignment of data tables and sequences. "
+                    "Right-click to copy results to clipboard."
+        )
         
         # Initial message
         self._update_results_text("Results will appear here after running analysis...")

@@ -10,6 +10,10 @@ from views.components import (
     show_success, show_error, show_confirm_dialog, SaveChangesDialog
 )
 from viewmodels.workspace_viewmodel import WorkspaceViewModel
+from utils.themed_tooltips import (
+    create_tooltip, create_validation_tooltip, create_info_button_tooltip,
+    create_info_button_with_tooltip, TooltipTemplates, create_status_tooltip
+)
 
 
 class WorkspacePage(ctk.CTkFrame):
@@ -64,34 +68,117 @@ class WorkspacePage(ctk.CTkFrame):
         self.new_button.pack(side="left", padx=5)
         
         # Edit operations
-        SecondaryButton(
+        copy_button = SecondaryButton(
             self.toolbar, 
             text="📋 Copy", 
             width=100,
             command=self._handle_copy
-        ).pack(side="left", padx=5)
+        )
+        copy_button.pack(side="left", padx=5)
         
-        SecondaryButton(
+        cut_button = SecondaryButton(
             self.toolbar, 
             text="✂️ Cut", 
             width=100,
             command=self._handle_cut
-        ).pack(side="left", padx=5)
+        )
+        cut_button.pack(side="left", padx=5)
         
-        SecondaryButton(
+        paste_button = SecondaryButton(
             self.toolbar, 
             text="📌 Paste", 
             width=100,
             command=self._handle_paste
-        ).pack(side="left", padx=5)
+        )
+        paste_button.pack(side="left", padx=5)
+        
+        # Add tooltips to file operation buttons
+        create_tooltip(
+            self.open_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Open FASTA file or sequence document",
+                "Ctrl+O"
+            )
+        )
+        
+        create_tooltip(
+            self.save_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Save current sequence to file or project",
+                "Ctrl+S"
+            )
+        )
+        
+        create_tooltip(
+            self.new_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Create new empty sequence for manual entry",
+                "Ctrl+N"
+            )
+        )
+        
+        # Add tooltips to edit operation buttons
+        create_tooltip(
+            copy_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Copy selected sequence text to clipboard",
+                "Ctrl+C"
+            )
+        )
+        
+        create_tooltip(
+            cut_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Cut selected sequence text to clipboard",
+                "Ctrl+X"
+            )
+        )
+        
+        create_tooltip(
+            paste_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Paste sequence text from clipboard",
+                "Ctrl+V"
+            )
+        )
         
         # Separator
         ctk.CTkFrame(self.toolbar, width=2, fg_color="gray").pack(side="left", padx=10, fill="y")
         
         # Tools
-        IconButton(self.toolbar, icon="🔍", command=self._handle_search).pack(side="left", padx=5)
-        IconButton(self.toolbar, icon="↩️", command=self._handle_undo).pack(side="left", padx=5)
-        IconButton(self.toolbar, icon="↪️", command=self._handle_redo).pack(side="left", padx=5)
+        search_button = IconButton(self.toolbar, icon="🔍", command=self._handle_search)
+        search_button.pack(side="left", padx=5)
+        
+        undo_button = IconButton(self.toolbar, icon="↩️", command=self._handle_undo)
+        undo_button.pack(side="left", padx=5)
+        
+        redo_button = IconButton(self.toolbar, icon="↪️", command=self._handle_redo)
+        redo_button.pack(side="left", padx=5)
+        
+        # Add tooltips to tool buttons
+        create_tooltip(
+            search_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Search and replace text in sequence",
+                "Ctrl+F"
+            )
+        )
+        
+        create_tooltip(
+            undo_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Undo last edit operation",
+                "Ctrl+Z"
+            )
+        )
+        
+        create_tooltip(
+            redo_button,
+            TooltipTemplates.keyboard_shortcut(
+                "Redo last undone operation",
+                "Ctrl+Y"
+            )
+        )
         
         # Status info
         self.status_label = ctk.CTkLabel(
@@ -112,11 +199,32 @@ class WorkspacePage(ctk.CTkFrame):
         browser_header = ctk.CTkFrame(self.file_browser, height=40)
         browser_header.pack(fill="x", padx=5, pady=5)
         
-        ctk.CTkLabel(
-            browser_header,
+        # Header with info button
+        header_container = ctk.CTkFrame(browser_header, fg_color="transparent")
+        header_container.pack(side="left", fill="x", expand=True, padx=15, pady=10)
+        
+        browser_label = ctk.CTkLabel(
+            header_container,
             text="File Browser",
             font=("Arial", 14, "bold")
-        ).pack(side="left", padx=15, pady=10)
+        )
+        browser_label.pack(side="left")
+        
+        # Info button for file browser
+        browser_info_button, browser_info_tooltip = create_info_button_with_tooltip(
+            header_container,
+            "File Browser\n\n"
+            "Navigate and manage sequence files:\n"
+            "• Browse folders to find FASTA files\n"
+            "• Single-click to select files\n"
+            "• Double-click FASTA files to import\n"
+            "• Use import button for batch operations\n\n"
+            "Supported Formats:\n"
+            "• .fasta, .fa, .fas - Standard FASTA format\n"
+            "• .fna - FASTA nucleic acid sequences\n"
+            "• .faa - FASTA amino acid sequences"
+        )
+        browser_info_button.pack(side="left", padx=(10, 0))
         
         # Import button
         import_button = IconButton(
@@ -125,6 +233,17 @@ class WorkspacePage(ctk.CTkFrame):
             command=self._handle_import_fasta
         )
         import_button.pack(side="right", padx=10)
+        
+        # Add tooltip to import button
+        create_tooltip(
+            import_button,
+            TooltipTemplates.file_format(
+                "Import FASTA Files",
+                ".fasta, .fa, .fas, .fna",
+                "Import selected FASTA files into the current project. "
+                "Sequences will be parsed and validated automatically."
+            )
+        )
         
         # Path navigation
         self.path_frame = ctk.CTkFrame(self.file_browser)
@@ -137,6 +256,13 @@ class WorkspacePage(ctk.CTkFrame):
             anchor="w"
         )
         self.path_label.pack(fill="x", padx=10, pady=5)
+        
+        # Add tooltip to path display
+        create_status_tooltip(
+            self.path_label,
+            lambda: f"Current Directory: {self.viewmodel.get_state('file_browser_path', 'Not set')}\n\n"
+                    "Click on folders to navigate. Use ⬆️ to go up one level."
+        )
         
         # File list
         self.file_list_frame = ctk.CTkFrame(self.file_browser)
@@ -256,6 +382,23 @@ class WorkspacePage(ctk.CTkFrame):
         item_frame.bind("<Double-Button-1>", on_double_click)
         item_frame.configure(cursor="hand2")
         
+        # Add tooltips to file items
+        if file_info['type'] == 'directory':
+            if file_info.get('is_parent'):
+                tooltip_text = "Go up one directory level"
+            else:
+                tooltip_text = f"Navigate to folder: {file_info['name']}"
+        elif file_info.get('is_fasta'):
+            tooltip_text = TooltipTemplates.file_format(
+                f"FASTA File: {file_info['name']}",
+                "Double-click to import",
+                "Contains biological sequence data in FASTA format"
+            )
+        else:
+            tooltip_text = f"File: {file_info['name']}\nClick to select"
+        
+        create_tooltip(item_frame, tooltip_text)
+        
         # Highlight selected files
         selected_files = self.viewmodel.get_state('selected_files', [])
         if file_info['path'] in selected_files:
@@ -317,6 +460,16 @@ class WorkspacePage(ctk.CTkFrame):
             self.header_entry.pack(side="left", fill="x", expand=True, padx=10, pady=5)
             self.header_entry.insert(0, sequence_header)
             self.header_entry.bind("<KeyRelease>", self._on_header_changed)
+            
+            # Add validation tooltip to editable header
+            create_validation_tooltip(
+                self.header_entry,
+                TooltipTemplates.validation_format(
+                    "Sequence Header",
+                    "Descriptive name for the sequence (FASTA header line)",
+                    ">Human_Chromosome_1_partial"
+                )
+            )
         else:
             # Read-only header
             header_label = ctk.CTkLabel(
@@ -326,6 +479,14 @@ class WorkspacePage(ctk.CTkFrame):
                 anchor="w"
             )
             header_label.pack(side="left", fill="x", expand=True, padx=10, pady=5)
+            
+            # Add status tooltip to read-only header
+            create_status_tooltip(
+                header_label,
+                lambda: f"Sequence: {sequence_header or 'Untitled'}\n\n"
+                        "This is the FASTA header line that identifies the sequence. "
+                        "Click Edit to modify the header and sequence content."
+            )
         
         # Edit/Save buttons
         if self.viewmodel.get_state('is_editing', False):
@@ -345,6 +506,19 @@ class WorkspacePage(ctk.CTkFrame):
                 command=self._handle_cancel_editing
             )
             cancel_btn.pack(side="right", padx=5)
+            
+            # Add tooltips to editing buttons
+            create_tooltip(
+                save_btn,
+                "Save changes to sequence header and content. "
+                "Validates sequence format before saving."
+            )
+            
+            create_tooltip(
+                cancel_btn,
+                "Cancel editing and discard unsaved changes. "
+                "Will prompt for confirmation if changes exist."
+            )
         else:
             # Edit button
             edit_btn = SecondaryButton(
@@ -354,6 +528,13 @@ class WorkspacePage(ctk.CTkFrame):
                 command=self._handle_edit_sequence
             )
             edit_btn.pack(side="right", padx=5)
+            
+            # Add tooltip to edit button
+            create_tooltip(
+                edit_btn,
+                "Enter edit mode to modify sequence header and content. "
+                "Enables text editing and validation features."
+            )
     
     def _create_editor_content(self):
         """Create main editor content area."""
@@ -376,8 +557,26 @@ class WorkspacePage(ctk.CTkFrame):
         if is_editing:
             self.editor.configure(state="normal")
             self.editor.bind("<KeyRelease>", self._on_content_changed)
+            
+            # Add validation tooltip for editing mode
+            create_validation_tooltip(
+                self.editor,
+                TooltipTemplates.validation_format(
+                    "Sequence Content",
+                    "Valid DNA/RNA/Protein sequence characters",
+                    "DNA: A, T, G, C, N\nRNA: A, U, G, C, N\nProtein: Standard amino acid codes"
+                )
+            )
         else:
             self.editor.configure(state="disabled")
+            
+            # Add status tooltip for read-only mode
+            create_status_tooltip(
+                self.editor,
+                lambda: f"Sequence Content (Read-Only)\n\n"
+                        f"Length: {len(sequence_content.replace('>', '').replace('\n', '').strip())} characters\n"
+                        "Click Edit button to modify this sequence."
+            )
     
     def _create_properties_panel(self):
         """Create properties panel showing sequence stats."""
@@ -402,11 +601,28 @@ class WorkspacePage(ctk.CTkFrame):
         else:
             stats_text = "No sequence loaded"
         
-        ctk.CTkLabel(
+        stats_label = ctk.CTkLabel(
             props_frame,
             text=stats_text,
             font=("Arial", 10)
-        ).pack(padx=10, pady=10)
+        )
+        stats_label.pack(padx=10, pady=10)
+        
+        # Add tooltip to sequence properties
+        if current_sequence and sequence_content:
+            create_status_tooltip(
+                stats_label,
+                lambda: TooltipTemplates.bioinformatics_term(
+                    "Sequence Properties",
+                    f"Calculated statistics for the current sequence:",
+                    f"• Length: Number of nucleotides/amino acids\n"
+                    f"• GC Content: Percentage of G and C nucleotides (DNA stability indicator)\n"
+                    f"• Type: {seq_type} sequence format\n\n"
+                    f"GC content affects DNA melting temperature and stability."
+                )
+            )
+        else:
+            create_tooltip(stats_label, "Sequence properties will appear here when a sequence is loaded")
     
     def _on_header_changed(self, event):
         """Handle header text changes."""

@@ -8,6 +8,10 @@ from views.components import (
     show_success, show_error
 )
 from viewmodels.dashboard_viewmodel import DashboardViewModel
+from utils.themed_tooltips import (
+    create_tooltip, create_status_tooltip, create_info_button_tooltip,
+    create_info_button_with_tooltip, TooltipTemplates
+)
 
 
 class DashboardPage(ctk.CTkFrame):
@@ -37,18 +41,43 @@ class DashboardPage(ctk.CTkFrame):
         self.welcome_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.welcome_frame.grid(row=0, column=0, columnspan=4, sticky="ew", padx=20, pady=20)
         
-        ctk.CTkLabel(
-            self.welcome_frame,
+        # Header with info button
+        header_container = ctk.CTkFrame(self.welcome_frame, fg_color="transparent")
+        header_container.pack(anchor="w", fill="x")
+        
+        title_label = ctk.CTkLabel(
+            header_container,
             text="Welcome to GeneStudio Pro",
             font=("Arial", 28, "bold")
-        ).pack(anchor="w")
+        )
+        title_label.pack(side="left", anchor="w")
         
-        ctk.CTkLabel(
+        # Info button for dashboard explanation
+        info_button, info_tooltip = create_info_button_with_tooltip(
+            header_container,
+            "Dashboard Overview\n\n"
+            "The dashboard provides a real-time overview of your bioinformatics work:\n"
+            "• Statistics cards show current project and sequence counts\n"
+            "• Recent activity tracks your latest analyses and operations\n"
+            "• Quick actions provide shortcuts to common tasks\n\n"
+            "All data updates automatically as you work with projects and sequences."
+        )
+        info_button.pack(side="left", padx=(10, 0))
+        
+        subtitle_label = ctk.CTkLabel(
             self.welcome_frame,
             text="Enterprise-grade DNA sequence analysis platform",
             font=("Arial", 14),
             text_color="gray"
-        ).pack(anchor="w", pady=(5, 0))
+        )
+        subtitle_label.pack(anchor="w", pady=(5, 0))
+        
+        # Add tooltip to subtitle
+        create_tooltip(
+            subtitle_label,
+            "Professional bioinformatics software for sequence analysis, "
+            "pattern matching, and computational biology research"
+        )
     
     def _create_stats_section(self):
         """Create statistics cards section."""
@@ -72,6 +101,19 @@ class DashboardPage(ctk.CTkFrame):
         self.activity_frame = ctk.CTkFrame(self)
         self.activity_frame.grid(row=2, column=2, columnspan=2, sticky="nsew", padx=10, pady=10)
         
+        # Add tooltips to the main content frames
+        create_tooltip(
+            self.actions_frame,
+            "Quick Actions: Shortcuts to common tasks like creating projects, "
+            "importing sequences, and running analyses"
+        )
+        
+        create_tooltip(
+            self.activity_frame,
+            "Recent Activity: Your latest actions and analysis results. "
+            "Click on items to view details or continue work."
+        )
+        
         # Initially show loading states
         self._show_content_loading()
     
@@ -94,19 +136,53 @@ class DashboardPage(ctk.CTkFrame):
         for widget in self.activity_frame.winfo_children():
             widget.destroy()
         
-        # Actions loading
-        ctk.CTkLabel(
-            self.actions_frame,
+        # Actions loading with info button
+        actions_header = ctk.CTkFrame(self.actions_frame, fg_color="transparent")
+        actions_header.pack(padx=20, pady=(20, 10), anchor="w", fill="x")
+        
+        actions_label = ctk.CTkLabel(
+            actions_header,
             text="Quick Actions",
             font=("Arial", 16, "bold")
-        ).pack(padx=20, pady=(20, 10), anchor="w")
+        )
+        actions_label.pack(side="left", anchor="w")
         
-        # Activity loading
-        ctk.CTkLabel(
-            self.activity_frame,
+        # Info button for quick actions
+        actions_info_button, actions_info_tooltip = create_info_button_with_tooltip(
+            actions_header,
+            "Quick Actions\n\n"
+            "Shortcuts to common bioinformatics tasks:\n"
+            "• Create Project: Start a new research project\n"
+            "• Import FASTA: Load sequence data from files\n"
+            "• Run Analysis: Execute algorithms on sequences\n"
+            "• View Reports: Access analysis results and exports\n\n"
+            "Actions adapt based on your current data and workflow state."
+        )
+        actions_info_button.pack(side="left", padx=(10, 0))
+        
+        # Activity loading with info button
+        activity_header = ctk.CTkFrame(self.activity_frame, fg_color="transparent")
+        activity_header.pack(padx=20, pady=(20, 10), anchor="w", fill="x")
+        
+        activity_label = ctk.CTkLabel(
+            activity_header,
             text="Recent Activity",
             font=("Arial", 16, "bold")
-        ).pack(padx=20, pady=(20, 10), anchor="w")
+        )
+        activity_label.pack(side="left", anchor="w")
+        
+        # Info button for recent activity
+        activity_info_button, activity_info_tooltip = create_info_button_with_tooltip(
+            activity_header,
+            "Recent Activity Feed\n\n"
+            "Tracks your latest bioinformatics work:\n"
+            "• Project creation and modifications\n"
+            "• Sequence imports and edits\n"
+            "• Analysis executions and results\n"
+            "• Export and report generation\n\n"
+            "Click on any activity item to view details or continue where you left off."
+        )
+        activity_info_button.pack(side="left", padx=(10, 0))
     
     def _load_dashboard_data(self):
         """Load dashboard data through ViewModel."""
@@ -132,27 +208,51 @@ class DashboardPage(ctk.CTkFrame):
         if not stats:
             return
         
-        # Define stat cards configuration
+        # Define stat cards configuration with detailed tooltips
         stat_configs = [
             {
                 'title': 'Total Sequences',
                 'value': str(stats.get('total_sequences', 0)),
-                'icon': '🧬'
+                'icon': '🧬',
+                'tooltip': TooltipTemplates.bioinformatics_term(
+                    'Total Sequences',
+                    'The total number of DNA, RNA, or protein sequences imported into all projects.',
+                    'Includes sequences from FASTA files and manually entered sequences. '
+                    'Each sequence can be analyzed using various bioinformatics algorithms.'
+                )
             },
             {
                 'title': 'Active Projects',
                 'value': str(stats.get('active_projects', 0)),
-                'icon': '📁'
+                'icon': '📁',
+                'tooltip': TooltipTemplates.bioinformatics_term(
+                    'Active Projects',
+                    'Projects currently being worked on (not archived or completed).',
+                    'Projects organize related sequences and analyses. '
+                    'Each project can contain multiple sequences and analysis results.'
+                )
             },
             {
                 'title': 'Analyses Run',
                 'value': str(stats.get('total_analyses', 0)),
-                'icon': '🔬'
+                'icon': '🔬',
+                'tooltip': TooltipTemplates.bioinformatics_term(
+                    'Analyses Run',
+                    'Total number of computational analyses performed on sequences.',
+                    'Includes pattern matching, GC content calculation, translation, '
+                    'and other bioinformatics algorithms. Both completed and failed analyses are counted.'
+                )
             },
             {
                 'title': 'Completed Analyses',
                 'value': str(stats.get('completed_analyses', 0)),
-                'icon': '✅'
+                'icon': '✅',
+                'tooltip': TooltipTemplates.bioinformatics_term(
+                    'Completed Analyses',
+                    'Number of analyses that finished successfully with results.',
+                    'Successful analyses produce results that can be viewed, exported, '
+                    'and used for further research. Failed analyses are not included in this count.'
+                )
             }
         ]
         
@@ -163,12 +263,19 @@ class DashboardPage(ctk.CTkFrame):
                 widget.destroy()
             
             # Add real stat card
-            StatCard(
+            stat_card = StatCard(
                 frame,
                 title=config['title'],
                 value=config['value'],
                 icon=config['icon']
-            ).pack(fill="both", expand=True)
+            )
+            stat_card.pack(fill="both", expand=True)
+            
+            # Add status tooltip to the stat card
+            create_status_tooltip(
+                stat_card,
+                lambda cfg=config: f"{cfg['title']}: {cfg['value']}\n\n{cfg['tooltip']}"
+            )
     
     def _update_activity(self, activity: list):
         """Update recent activity section."""
@@ -276,23 +383,54 @@ class DashboardPage(ctk.CTkFrame):
         # Check if empty state should be shown
         if self.viewmodel.is_empty_state():
             empty_config = self.viewmodel.get_empty_state_config()
-            EmptyDashboard(
+            empty_dashboard = EmptyDashboard(
                 self.actions_frame,
                 on_create_project=self._handle_create_project,
                 on_load_sample=self._handle_load_sample
-            ).pack(padx=20, pady=(10, 20), fill="both", expand=True)
+            )
+            empty_dashboard.pack(padx=20, pady=(10, 20), fill="both", expand=True)
+            
+            # Add tooltips to empty state buttons
+            create_tooltip(
+                empty_dashboard,
+                "Getting Started: Create your first project or load sample data to begin "
+                "exploring GeneStudio's bioinformatics capabilities"
+            )
         else:
             # Show regular quick actions
             quick_actions = self.viewmodel.get_state('quick_actions', [])
             
+            # Action tooltips mapping
+            action_tooltips = {
+                'create_project': TooltipTemplates.keyboard_shortcut(
+                    'Create a new bioinformatics project to organize sequences and analyses',
+                    'Ctrl+N'
+                ),
+                'import_fasta': TooltipTemplates.file_format(
+                    'Import FASTA File',
+                    '.fasta, .fa, .fas',
+                    'Load DNA, RNA, or protein sequences from standard FASTA format files'
+                ),
+                'run_analysis': 'Execute bioinformatics algorithms on your sequences: '
+                               'pattern matching, GC content, translation, and more',
+                'view_reports': 'Access analysis results, generate reports, and export data '
+                               'in multiple formats (PDF, Excel, CSV)'
+            }
+            
             for action in quick_actions:
-                ActionCard(
+                action_card = ActionCard(
                     self.actions_frame,
                     title=action['title'],
                     description=action['description'],
                     button_text=action['title'],
                     command=lambda a=action: self._handle_quick_action(a)
-                ).pack(padx=20, pady=10, fill="x")
+                )
+                action_card.pack(padx=20, pady=10, fill="x")
+                
+                # Add tooltip to action card
+                action_id = action.get('id', '')
+                tooltip_text = action_tooltips.get(action_id, action.get('description', ''))
+                create_tooltip(action_card, tooltip_text)
     
     def _handle_quick_action(self, action: dict):
         """Handle quick action button clicks."""
@@ -330,6 +468,12 @@ class DashboardPage(ctk.CTkFrame):
     def _handle_view_reports(self):
         """Handle view reports action."""
         show_success("Navigate to reports page")
+    
+    def _add_action_tooltips(self):
+        """Add tooltips to action buttons."""
+        # This method would be called when action buttons are created
+        # to add appropriate tooltips based on the action type
+        pass
     
     def refresh_data(self):
         """Refresh dashboard data."""
