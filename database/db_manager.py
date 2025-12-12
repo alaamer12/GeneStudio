@@ -104,7 +104,7 @@ class DatabaseManager:
                     status TEXT DEFAULT 'active',
                     sequence_count INTEGER DEFAULT 0,
                     analysis_count INTEGER DEFAULT 0,
-                    metadata JSON
+                    metadata TEXT
                 )
             """)
             
@@ -132,8 +132,8 @@ class DatabaseManager:
                     project_id INTEGER REFERENCES projects(id),
                     sequence_id INTEGER REFERENCES sequences(id),
                     analysis_type TEXT NOT NULL,
-                    parameters JSON,
-                    results JSON,
+                    parameters TEXT,
+                    results TEXT,
                     status TEXT DEFAULT 'pending',
                     error_message TEXT,
                     execution_time REAL,
