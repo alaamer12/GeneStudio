@@ -52,11 +52,11 @@ class AsyncExecutor:
             try:
                 result = task()
                 if on_complete:
-                    # Schedule callback on main thread using timer
-                    threading.Timer(0, lambda: on_complete(result)).start()
+                    # Simple direct call - let the ViewModel handle thread safety
+                    on_complete(result)
             except Exception as e:
                 if on_error:
-                    threading.Timer(0, lambda: on_error(e)).start()
+                    on_error(e)
                 else:
                     logging.getLogger(__name__).error(f"Async task failed: {e}", exc_info=True)
         
@@ -84,15 +84,15 @@ class AsyncExecutor:
         def worker():
             try:
                 def progress_wrapper(progress: float):
-                    # Schedule progress update on main thread
-                    threading.Timer(0, lambda: progress_callback(progress)).start()
+                    # Direct call - let the ViewModel handle thread safety
+                    progress_callback(progress)
                 
                 result = task(progress_wrapper)
                 if on_complete:
-                    threading.Timer(0, lambda: on_complete(result)).start()
+                    on_complete(result)
             except Exception as e:
                 if on_error:
-                    threading.Timer(0, lambda: on_error(e)).start()
+                    on_error(e)
                 else:
                     logging.getLogger(__name__).error(f"Async task with progress failed: {e}", exc_info=True)
         

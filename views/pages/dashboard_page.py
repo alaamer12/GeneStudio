@@ -120,13 +120,18 @@ class DashboardPage(ctk.CTkFrame):
     def _show_stats_loading(self):
         """Show skeleton loading for stats cards."""
         for frame in self.stats_frames:
-            # Clear frame
+            # Clear frame and stop any skeleton animations
             for widget in frame.winfo_children():
+                # Stop skeleton animations before destroying
+                if hasattr(widget, 'stop_shimmer'):
+                    widget.stop_shimmer()
                 widget.destroy()
             
-            # Add skeleton card
-            skeleton = SkeletonCard(frame, width=200, height=120)
-            skeleton.pack(fill="both", expand=True)
+            # Add simple loading frame instead of skeleton card
+            loading_frame = ctk.CTkFrame(frame, width=200, height=120)
+            loading_label = ctk.CTkLabel(loading_frame, text="Loading...", text_color="gray")
+            loading_label.pack(expand=True)
+            loading_frame.pack(fill="both", expand=True)
     
     def _show_content_loading(self):
         """Show loading states for content sections."""
@@ -212,7 +217,7 @@ class DashboardPage(ctk.CTkFrame):
         stat_configs = [
             {
                 'title': 'Total Sequences',
-                'value': str(stats.get('total_sequences', 0)),
+                'key': 'total_sequences',
                 'icon': '🧬',
                 'tooltip': TooltipTemplates.bioinformatics_term(
                     'Total Sequences',
@@ -223,7 +228,7 @@ class DashboardPage(ctk.CTkFrame):
             },
             {
                 'title': 'Active Projects',
-                'value': str(stats.get('active_projects', 0)),
+                'key': 'active_projects',
                 'icon': '📁',
                 'tooltip': TooltipTemplates.bioinformatics_term(
                     'Active Projects',
@@ -234,7 +239,7 @@ class DashboardPage(ctk.CTkFrame):
             },
             {
                 'title': 'Analyses Run',
-                'value': str(stats.get('total_analyses', 0)),
+                'key': 'total_analyses',
                 'icon': '🔬',
                 'tooltip': TooltipTemplates.bioinformatics_term(
                     'Analyses Run',
@@ -245,7 +250,7 @@ class DashboardPage(ctk.CTkFrame):
             },
             {
                 'title': 'Completed Analyses',
-                'value': str(stats.get('completed_analyses', 0)),
+                'key': 'completed_analyses',
                 'icon': '✅',
                 'tooltip': TooltipTemplates.bioinformatics_term(
                     'Completed Analyses',
@@ -258,15 +263,21 @@ class DashboardPage(ctk.CTkFrame):
         
         # Update each stat card
         for i, (frame, config) in enumerate(zip(self.stats_frames, stat_configs)):
-            # Clear frame
+            # Clear frame and stop any skeleton animations
             for widget in frame.winfo_children():
+                # Stop skeleton animations before destroying
+                if hasattr(widget, 'stop_shimmer'):
+                    widget.stop_shimmer()
                 widget.destroy()
+            
+            # Get the actual value from stats using the key
+            value = str(stats.get(config['key'], 0))
             
             # Add real stat card
             stat_card = StatCard(
                 frame,
                 title=config['title'],
-                value=config['value'],
+                value=value,
                 icon=config['icon']
             )
             stat_card.pack(fill="both", expand=True)
@@ -274,7 +285,7 @@ class DashboardPage(ctk.CTkFrame):
             # Add status tooltip to the stat card
             create_status_tooltip(
                 stat_card,
-                lambda cfg=config: f"{cfg['title']}: {cfg['value']}\n\n{cfg['tooltip']}"
+                lambda cfg=config, val=value: f"{cfg['title']}: {val}\n\n{cfg['tooltip']}"
             )
     
     def _update_activity(self, activity: list):

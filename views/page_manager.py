@@ -41,7 +41,7 @@ class PageManager:
         if self.current_page and self.current_page in self.pages:
             self.pages[self.current_page].pack_forget()
         
-        # Create page if it doesn't exist
+        # Create page if it doesn't exist (fallback for non-preloaded pages)
         if name not in self.pages:
             if name in self.page_constructors:
                 self.pages[name] = self.page_constructors[name](self.parent)
@@ -52,7 +52,7 @@ class PageManager:
         self.pages[name].pack(fill="both", expand=True)
         
         # Update history
-        if self.current_page:
+        if self.current_page and self.current_page != name:
             self.history.append(self.current_page)
         self.current_page = name
         

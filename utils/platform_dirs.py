@@ -211,5 +211,5 @@ def initialize_directories(user_profile: Optional[str] = None) -> None:
     get_temp_dir(user_profile)
 
 
-# Auto-initialize on import
-initialize_directories()
+# Auto-initialize on import (commented out to prevent startup delays)
+# initialize_directories()

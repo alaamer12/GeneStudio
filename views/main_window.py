@@ -18,6 +18,10 @@ class MainWindowPro(ctk.CTk):
     def __init__(self):
         super().__init__()
         
+        # Hide window completely during initialization to prevent flickering
+        self.withdraw()
+        self.overrideredirect(True)  # Remove window decorations temporarily
+        
         # Window state manager
         self.window_state_manager = WindowStateManager()
         
@@ -59,9 +63,17 @@ class MainWindowPro(ctk.CTk):
         # Set up toast notification container
         set_toast_container(self)
         
+        # Initialize with dashboard page to avoid lazy loading flicker
+        self.page_manager.show_page("dashboard")
+        
         # Show last active page or dashboard by default
         last_page = self.window_state_manager.get_last_page()
+        if last_page != "dashboard":
+            self.page_manager.show_page(last_page)
         self.navigation.set_active_page(last_page)
+        
+        # Show window after all initialization is complete
+        self.after(50, self._show_window_after_init)
         
     def _register_pages(self):
         """Register all application pages."""
@@ -106,3 +118,18 @@ class MainWindowPro(ctk.CTk):
         
         # Update footer
         self.footer.set_status(f"Viewing: {page_names.get(page_id, page_id)}")
+    
+    def _show_window_after_init(self):
+        """Show window after all initialization is complete."""
+        # Restore window decorations
+        self.overrideredirect(False)
+        
+        # Show the window
+        self.deiconify()
+        
+        # Ensure proper window state
+        self.lift()
+        self.focus_force()
+        
+        # Apply any pending window state changes
+        self.update_idletasks()

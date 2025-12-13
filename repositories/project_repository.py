@@ -136,8 +136,48 @@ class ProjectRepository(BaseRepository[Project]):
         """List projects with optional filters."""
         try:
             base_query = "SELECT * FROM projects"
-            where_clause, params = self._build_where_clause(filters)
-            order_clause = self._build_order_clause("modified_date", order_desc=True)
+            
+            # Separate ordering parameters from WHERE filters
+            order_by = None
+            order_desc = True
+            where_filters = {}
+            
+            if filters:
+                # Extract ordering parameters
+                order_by = filters.get('order_by', 'modified_date')
+                order_direction = filters.get('order', 'desc')
+                order_desc = order_direction.lower() == 'desc'
+                
+                # Build WHERE filters (exclude ordering parameters)
+                where_filters = {k: v for k, v in filters.items() 
+                               if k not in ['order_by', 'order', 'search']}
+                
+                # Handle search parameter specially
+                if 'search' in filters:
+                    # Search will be handled in a custom WHERE clause
+                    pass
+            else:
+                order_by = 'modified_date'
+            
+            # Build WHERE clause
+            where_clause, params = self._build_where_clause(where_filters)
+            
+            # Handle search separately if present
+            if filters and 'search' in filters:
+                search_term = filters['search']
+                if search_term:
+                    search_clause = " (name ILIKE ? OR description ILIKE ?)"
+                    search_params = (f"%{search_term}%", f"%{search_term}%")
+                    
+                    if where_clause:
+                        where_clause += " AND" + search_clause
+                        params = params + search_params
+                    else:
+                        where_clause = " WHERE" + search_clause
+                        params = search_params
+            
+            # Build ORDER BY clause
+            order_clause = self._build_order_clause(order_by, order_desc)
             
             query = base_query + where_clause + order_clause
             result = self._execute_query(query, params)

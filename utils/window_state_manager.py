@@ -70,12 +70,18 @@ class WindowStateManager:
             
             # Handle maximized state
             if saved_state.get("maximized", False):
-                # Delay maximization to ensure proper restoration
-                window.after(100, lambda: window.state("zoomed"))
+                # Apply maximization immediately if window is hidden, otherwise delay slightly
+                if window.winfo_viewable():
+                    window.after(10, lambda: window.state("zoomed"))
+                else:
+                    window.state("zoomed")
             
             # Center window if no saved position or if centering is requested
             if saved_state.get("position") == "center" or not self._has_valid_position(geometry):
-                window.after(100, lambda: self._center_window(window))
+                if window.winfo_viewable():
+                    window.after(10, lambda: self._center_window(window))
+                else:
+                    self._center_window(window)
                 
         except Exception as e:
             print(f"Failed to restore window state: {e}")
@@ -173,7 +179,10 @@ class WindowStateManager:
         window.minsize(self.min_width, self.min_height)
         window.geometry(self.default_state["geometry"])
         # Always center on first startup
-        window.after(100, lambda: self._center_window(window))
+        if window.winfo_viewable():
+            window.after(10, lambda: self._center_window(window))
+        else:
+            self._center_window(window)
     
     def _get_timestamp(self) -> str:
         """Get current timestamp."""

@@ -7,6 +7,9 @@ class PrimaryButton(ctk.CTkButton):
     """Primary action button with consistent styling."""
     
     def __init__(self, parent, text: str, command=None, **kwargs):
+        # Remove conflicting parameters from kwargs
+        kwargs.pop('fg_color', None)
+        kwargs.pop('hover_color', None)
         super().__init__(
             parent,
             text=text,
@@ -21,6 +24,8 @@ class SecondaryButton(ctk.CTkButton):
     """Secondary action button."""
     
     def __init__(self, parent, text: str, command=None, **kwargs):
+        # Remove fg_color from kwargs to avoid conflict
+        kwargs.pop('fg_color', None)
         super().__init__(
             parent,
             text=text,
@@ -36,6 +41,9 @@ class DangerButton(ctk.CTkButton):
     """Danger/destructive action button."""
     
     def __init__(self, parent, text: str, command=None, **kwargs):
+        # Remove conflicting parameters from kwargs
+        kwargs.pop('fg_color', None)
+        kwargs.pop('hover_color', None)
         super().__init__(
             parent,
             text=text,

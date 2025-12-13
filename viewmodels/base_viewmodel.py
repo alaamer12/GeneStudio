@@ -104,19 +104,47 @@ class BaseViewModel:
         self.clear_error(operation_name)
         
         def success_handler(result):
-            self.set_loading(operation_name, False)
-            if on_success:
-                on_success(result)
+            # Schedule UI updates on main thread
+            self._schedule_ui_update(lambda: self._handle_success(operation_name, result, on_success))
         
         def error_handler(error):
-            self.set_loading(operation_name, False)
-            error_message = str(error)
-            self.set_error(error_message, operation_name)
-            self.logger.error(f"Error in {operation_name}: {error_message}")
-            if on_error:
-                on_error(error)
+            # Schedule UI updates on main thread
+            self._schedule_ui_update(lambda: self._handle_error(operation_name, error, on_error))
         
         AsyncExecutor.run_async(operation_func, success_handler, error_handler)
+    
+    def _handle_success(self, operation_name: str, result: Any, on_success: Optional[Callable]):
+        """Handle successful operation completion on main thread."""
+        self.set_loading(operation_name, False)
+        if on_success:
+            on_success(result)
+    
+    def _handle_error(self, operation_name: str, error: Exception, on_error: Optional[Callable]):
+        """Handle operation error on main thread."""
+        self.set_loading(operation_name, False)
+        error_message = str(error)
+        self.set_error(error_message, operation_name)
+        self.logger.error(f"Error in {operation_name}: {error_message}")
+        if on_error:
+            on_error(error)
+    
+    def _schedule_ui_update(self, callback: Callable):
+        """Schedule a callback to run on the main UI thread."""
+        try:
+            # Try to find the main window and use its after method
+            import tkinter as tk
+            
+            # Get the default root window
+            root = tk._default_root
+            if root:
+                root.after(0, callback)
+            else:
+                # Fallback to direct call if no root window
+                callback()
+        except Exception as e:
+            self.logger.warning(f"Failed to schedule UI update, calling directly: {e}")
+            # Fallback to direct call
+            callback()
     
     def validate_input(self, data: Dict[str, Any], rules: Dict[str, Callable]) -> tuple[bool, Dict[str, str]]:
         """Validate input data against rules."""

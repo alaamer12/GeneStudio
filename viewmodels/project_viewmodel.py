@@ -40,10 +40,9 @@ class ProjectViewModel(BaseViewModel):
         
         def load_operation():
             # Apply current filters if none provided
-            if filters is None:
-                filters = self._build_current_filters()
+            current_filters = filters if filters is not None else self._build_current_filters()
             
-            success, projects = self.project_service.list_projects(filters)
+            success, projects = self.project_service.list_projects(current_filters)
             if not success:
                 raise Exception(projects)  # projects contains error message
             

@@ -420,6 +420,10 @@ class ProjectsPage(ctk.CTkFrame):
         elif key == 'loading_load_projects':
             if value:
                 self._show_loading_state()
+            else:
+                # Loading finished, update projects display
+                projects = self.viewmodel.get_state('projects', [])
+                self._update_projects_display(projects)
         elif key == 'selected_projects':
             self._update_selection_display()
         elif key == 'pending_deletion':

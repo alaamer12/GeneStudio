@@ -16,29 +16,47 @@ class SkeletonBase(ctk.CTkFrame):
         self.shimmer_active = True
         self.shimmer_position = 0.0
         self.shimmer_direction = 1
-        self.animation_thread = None
+        self.animation_id = None
         
         # Colors for shimmer effect
         self.base_color = "#2b2b2b"
         self.shimmer_color = "#3b3b3b"
         
-        # Start shimmer animation
-        self.start_shimmer()
+        # Completely disable shimmer animation to prevent threading issues
+        # Animation disabled - no shimmer effects
+        pass
     
     def start_shimmer(self):
         """Start the shimmer animation."""
-        if self.animation_thread is None or not self.animation_thread.is_alive():
+        if self.animation_id is None:
             self.shimmer_active = True
-            self.animation_thread = threading.Thread(target=self._animate_shimmer, daemon=True)
-            self.animation_thread.start()
+            self._schedule_next_frame()
     
     def stop_shimmer(self):
         """Stop the shimmer animation."""
         self.shimmer_active = False
+        if self.animation_id is not None:
+            try:
+                self.after_cancel(self.animation_id)
+            except:
+                pass
+            self.animation_id = None
     
-    def _animate_shimmer(self):
-        """Animate the shimmer effect."""
-        while self.shimmer_active:
+    def destroy(self):
+        """Override destroy to ensure animation is stopped."""
+        self.stop_shimmer()
+        super().destroy()
+    
+    def __del__(self):
+        """Ensure animation is stopped when object is deleted."""
+        try:
+            self.stop_shimmer()
+        except:
+            pass
+    
+    def _schedule_next_frame(self):
+        """Schedule the next animation frame."""
+        if self.shimmer_active:
             try:
                 # Update shimmer position
                 self.shimmer_position += 0.02 * self.shimmer_direction
@@ -51,34 +69,19 @@ class SkeletonBase(ctk.CTkFrame):
                     self.shimmer_position = 0.0
                     self.shimmer_direction = 1
                 
-                # Update UI on main thread
-                self.after(0, self._update_shimmer)
+                # Update visual effect
+                self._update_shimmer()
                 
-                # Control animation speed
-                time.sleep(0.05)
-                
+                # Schedule next frame
+                self.animation_id = self.after(50, self._schedule_next_frame)
             except Exception:
-                # Stop animation if there's an error
-                break
+                # Widget destroyed or error, stop animation
+                self.stop_shimmer()
     
     def _update_shimmer(self):
         """Update the shimmer visual effect."""
-        # Calculate shimmer intensity based on position
-        intensity = abs(0.5 - self.shimmer_position) * 2
-        
-        # Interpolate between base and shimmer colors
-        base_rgb = self._hex_to_rgb(self.base_color)
-        shimmer_rgb = self._hex_to_rgb(self.shimmer_color)
-        
-        current_rgb = tuple(
-            int(base + (shimmer - base) * intensity)
-            for base, shimmer in zip(base_rgb, shimmer_rgb)
-        )
-        
-        current_color = self._rgb_to_hex(current_rgb)
-        
-        # Update frame color
-        self.configure(fg_color=current_color)
+        # Animation completely disabled to prevent widget destruction errors
+        return
     
     def _hex_to_rgb(self, hex_color: str) -> tuple:
         """Convert hex color to RGB tuple."""

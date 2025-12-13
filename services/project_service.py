@@ -285,3 +285,7 @@ class ProjectService(BaseService[Project]):
             return self.project_repository.list({"status": status})
         
         return self.execute_with_logging(operation, "get_projects_by_status")
+    
+    def get_projects(self, filters: Optional[Dict[str, Any]] = None) -> Tuple[bool, List[Project]]:
+        """Get projects with optional filters (alias for list_projects)."""
+        return self.list_projects(filters)
