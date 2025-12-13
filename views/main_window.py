@@ -37,7 +37,7 @@ class MainWindowPro(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         
         # Header
-        self.header = Header(self)
+        self.header = Header(self, on_search_result=self._on_search_result)
         self.header.grid(row=0, column=0, columnspan=2, sticky="ew")
         
         # Navigation sidebar
@@ -95,8 +95,40 @@ class MainWindowPro(ctk.CTk):
         # Update page
         self.page_manager.show_page(page_id)
         
+        # Update navigation
+        self.navigation.set_active_page(page_id)
+        
+        # Update header breadcrumb
+        page_names = {
+            "dashboard": "Dashboard",
+            "projects": "Projects",
+            "workspace": "Workspace",
+            "analysis": "Analysis",
+            "pattern_matching": "Pattern Matching",
+            "sequence_management": "Sequence Management",
+            "visualization": "Visualization",
+            "graph_analysis": "Graph Analysis",
+            "reports": "Reports",
+            "export": "Export",
+            "settings": "Settings",
+            "help": "Help"
+        }
+        self.header.update_breadcrumb(page_names.get(page_id, page_id.title()))
+        
         # Save last active page
         self.window_state_manager.save_last_page(page_id)
+    
+    def _on_search_result(self, navigation_info: dict):
+        """Handle search result selection."""
+        page = navigation_info.get('page')
+        action = navigation_info.get('action')
+        
+        if page:
+            # Navigate to the appropriate page
+            self._on_navigate(page)
+            
+            # TODO: Pass additional context to the page for specific actions
+            # For example, opening a specific project, sequence, or analysis
         
         # Update breadcrumb
         page_names = {

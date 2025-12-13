@@ -1,6 +1,12 @@
 # Implementation Plan
 
-- [ ] 1. Search and Pattern Matching Systems - Global Search with Algorithm Integration
+- [-] 1. Search and Pattern Matching Systems - Global Search with Algorithm Integration
+
+
+
+
+- Some files have been created run git status to know these files
+
   - **1.1 Search System Implementation**
     - Create SearchEngine utility with full-text indexing and fuzzy matching capabilities
     - Implement SearchService with query processing, result ranking, and history management
@@ -19,23 +25,23 @@
     - Update PatternMatchingPage with algorithm selection UI and result display components
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ]* 1.1 Write property test for real-time search responsiveness
+- [ ] 1.1 Write property test for real-time search responsiveness
   - **Property 1: Real-time search responsiveness**
   - **Validates: Requirements 1.1**
 
-- [ ]* 1.2 Write property test for fuzzy matching consistency
+- [ ] 1.2 Write property test for fuzzy matching consistency
   - **Property 2: Fuzzy matching consistency**
   - **Validates: Requirements 1.2**
 
-- [ ]* 1.3 Write property test for search result categorization
+- [ ] 1.3 Write property test for search result categorization
   - **Property 3: Search result categorization**
   - **Validates: Requirements 1.3**
 
-- [ ]* 1.4 Write property test for filter application correctness
+- [ ] 1.4 Write property test for filter application correctness
   - **Property 4: Filter application correctness**
   - **Validates: Requirements 1.4**
 
-- [ ]* 1.5 Write property test for search history persistence
+- [ ] 1.5 Write property test for search history persistence
   - **Property 5: Search history persistence**
   - **Validates: Requirements 1.5**
 
@@ -60,6 +66,7 @@
   - **Validates: Requirements 2.5**
 
 - [ ] 2. Visualization and Graph Analysis - Interactive 3D Graphs and Advanced Plotting
+
   - **2.1 Graph Analysis and 3D Visualization**
     - Create GraphAnalysisViewModel with overlap graph generation and 3D visualization management
     - Implement overlap graph generation using existing overlap_graph algorithm with configurable parameters
@@ -121,6 +128,7 @@
   - **Validates: Requirements 4.5**
 
 - [ ] 3. Sequence Management and Performance Optimization - Comprehensive Data Handling
+
   - **3.1 Comprehensive Sequence Management**
     - Create SequenceManagementViewModel with comprehensive sequence library management
     - Enhance SequenceService with multi-format import support (FASTA, multi-FASTA) and format validation

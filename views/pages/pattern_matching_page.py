@@ -1,7 +1,11 @@
 """Pattern matching page."""
 
 import customtkinter as ctk
+from typing import Optional
 from views.components import PrimaryButton, DataTable
+from views.components.loading_indicators import LinearProgress
+from views.components.toast_notifications import show_success, show_error, show_info
+from viewmodels.pattern_matching_viewmodel import PatternMatchingViewModel
 from utils.themed_tooltips import (
     create_tooltip, create_validation_tooltip, create_info_button_tooltip,
     create_info_button_with_tooltip, TooltipTemplates, create_status_tooltip
@@ -14,6 +18,29 @@ class PatternMatchingPage(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color="transparent")
         
+        # Initialize ViewModel
+        self.viewmodel = PatternMatchingViewModel()
+        self.viewmodel.add_observer(self._on_viewmodel_state_changed)
+        
+        # UI References
+        self.pattern_entry = None
+        self.algorithm_menu = None
+        self.case_sensitive_cb = None
+        self.highlight_matches_cb = None
+        self.show_statistics_cb = None
+        self.search_button = None
+        self.progress_bar = None
+        self.results_table = None
+        self.sequence_listbox = None
+        self.project_menu = None
+        
+        self._create_ui()
+        
+        # Load initial data
+        self._load_initial_data()
+    
+    def _create_ui(self):
+        """Create the user interface."""
         # Header
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=20)
@@ -48,20 +75,43 @@ class PatternMatchingPage(ctk.CTkFrame):
         )
         pattern_info_button.pack(side="left", padx=(10, 0))
         
-        search_button = PrimaryButton(
-            header,
-            text="🔍 Search",
-            width=120
-        )
-        search_button.pack(side="right")
+        # Action buttons
+        button_frame = ctk.CTkFrame(header, fg_color="transparent")
+        button_frame.pack(side="right")
         
-        # Add tooltip to search button
+        self.compare_button = PrimaryButton(
+            button_frame,
+            text="⚖️ Compare",
+            width=120,
+            command=self._compare_algorithms
+        )
+        self.compare_button.pack(side="left", padx=(0, 10))
+        
+        self.search_button = PrimaryButton(
+            button_frame,
+            text="🔍 Search",
+            width=120,
+            command=self._execute_search
+        )
+        self.search_button.pack(side="left")
+        
+        # Add tooltips to buttons
         create_tooltip(
-            search_button,
+            self.search_button,
             TooltipTemplates.keyboard_shortcut(
                 "Execute pattern search with selected algorithm and parameters",
                 "Ctrl+Enter"
             )
+        )
+        
+        create_tooltip(
+            self.compare_button,
+            "Compare Algorithm Performance\n\n"
+            "Run the same pattern search with multiple algorithms to compare:\n"
+            "• Execution time\n"
+            "• Memory usage\n"
+            "• Match accuracy\n\n"
+            "Useful for selecting the best algorithm for your data."
         )
         
         # Configuration
@@ -95,6 +145,24 @@ class PatternMatchingPage(ctk.CTkFrame):
         )
         config_info_button.pack(side="left", padx=(10, 0))
         
+        # Project selection
+        project_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        project_frame.pack(fill="x", padx=20, pady=5)
+        
+        ctk.CTkLabel(
+            project_frame,
+            text="Project:",
+            width=100
+        ).pack(side="left", padx=(0, 10))
+        
+        self.project_menu = ctk.CTkOptionMenu(
+            project_frame,
+            values=["Select Project..."],
+            width=300,
+            command=self._on_project_selected
+        )
+        self.project_menu.pack(side="left")
+        
         # Pattern input
         pattern_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
         pattern_frame.pack(fill="x", padx=20, pady=5)
@@ -105,16 +173,17 @@ class PatternMatchingPage(ctk.CTkFrame):
             width=100
         ).pack(side="left", padx=(0, 10))
         
-        pattern_entry = ctk.CTkEntry(
+        self.pattern_entry = ctk.CTkEntry(
             pattern_frame,
             placeholder_text="Enter DNA pattern (e.g., ATCG)",
             width=300
         )
-        pattern_entry.pack(side="left")
+        self.pattern_entry.pack(side="left")
+        self.pattern_entry.bind("<KeyRelease>", self._on_pattern_changed)
         
         # Add validation tooltip to pattern entry
         create_validation_tooltip(
-            pattern_entry,
+            self.pattern_entry,
             TooltipTemplates.validation_format(
                 "Search Pattern",
                 "DNA/RNA sequence using IUPAC nucleotide codes",
@@ -134,16 +203,17 @@ class PatternMatchingPage(ctk.CTkFrame):
             width=100
         ).pack(side="left", padx=(0, 10))
         
-        algo_menu = ctk.CTkOptionMenu(
+        self.algorithm_menu = ctk.CTkOptionMenu(
             algo_frame,
-            values=["Boyer-Moore (Bad Char)", "Boyer-Moore (Good Suffix)", "Suffix Array", "KMP", "Naive"],
-            width=300
+            values=["Select Algorithm..."],
+            width=300,
+            command=self._on_algorithm_selected
         )
-        algo_menu.pack(side="left")
+        self.algorithm_menu.pack(side="left")
         
         # Add tooltip to algorithm selector
         create_tooltip(
-            algo_menu,
+            self.algorithm_menu,
             "Algorithm Selection\n\n"
             "Choose pattern matching algorithm:\n\n"
             "• Boyer-Moore (Bad Char): O(n/m) average, best for long patterns\n"
@@ -159,21 +229,50 @@ class PatternMatchingPage(ctk.CTkFrame):
         )
         
         # Options
+        # Sequence selection
+        sequence_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+        sequence_frame.pack(fill="x", padx=20, pady=5)
+        
+        ctk.CTkLabel(
+            sequence_frame,
+            text="Sequences:",
+            width=100
+        ).pack(side="left", padx=(0, 10), anchor="n")
+        
+        sequence_container = ctk.CTkFrame(sequence_frame)
+        sequence_container.pack(side="left", fill="x", expand=True)
+        
+        self.sequence_listbox = ctk.CTkScrollableFrame(sequence_container, height=100)
+        self.sequence_listbox.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Options
         options_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
         options_frame.pack(fill="x", padx=20, pady=(5, 15))
         
-        case_sensitive_cb = ctk.CTkCheckBox(options_frame, text="Case sensitive")
-        case_sensitive_cb.pack(side="left", padx=10)
+        self.case_sensitive_cb = ctk.CTkCheckBox(
+            options_frame, 
+            text="Case sensitive",
+            command=self._on_option_changed
+        )
+        self.case_sensitive_cb.pack(side="left", padx=10)
         
-        highlight_matches_cb = ctk.CTkCheckBox(options_frame, text="Highlight matches")
-        highlight_matches_cb.pack(side="left", padx=10)
+        self.highlight_matches_cb = ctk.CTkCheckBox(
+            options_frame, 
+            text="Highlight matches",
+            command=self._on_option_changed
+        )
+        self.highlight_matches_cb.pack(side="left", padx=10)
         
-        show_statistics_cb = ctk.CTkCheckBox(options_frame, text="Show statistics")
-        show_statistics_cb.pack(side="left", padx=10)
+        self.show_statistics_cb = ctk.CTkCheckBox(
+            options_frame, 
+            text="Show statistics",
+            command=self._on_option_changed
+        )
+        self.show_statistics_cb.pack(side="left", padx=10)
         
         # Add tooltips to option checkboxes
         create_tooltip(
-            case_sensitive_cb,
+            self.case_sensitive_cb,
             "Case Sensitive Matching\n\n"
             "When enabled, pattern matching distinguishes between uppercase and lowercase letters.\n"
             "• Enabled: 'ATG' ≠ 'atg'\n"
@@ -182,7 +281,7 @@ class PatternMatchingPage(ctk.CTkFrame):
         )
         
         create_tooltip(
-            highlight_matches_cb,
+            self.highlight_matches_cb,
             "Highlight Matches\n\n"
             "Visually highlight found patterns in the sequence display.\n"
             "• Shows exact match positions with colored background\n"
@@ -191,7 +290,7 @@ class PatternMatchingPage(ctk.CTkFrame):
         )
         
         create_tooltip(
-            show_statistics_cb,
+            self.show_statistics_cb,
             "Algorithm Performance Statistics\n\n"
             "Display detailed performance metrics:\n"
             "• Execution time (milliseconds)\n"
@@ -234,9 +333,15 @@ class PatternMatchingPage(ctk.CTkFrame):
         )
         results_info_button.pack(side="left", padx=(10, 0))
         
+        # Progress bar
+        self.progress_bar = LinearProgress(results_frame, mode="indeterminate")
+        self.progress_bar.pack(fill="x", padx=20, pady=(0, 10))
+        self.progress_bar.pack_forget()  # Initially hidden
+        
+        # Results table
         self.results_table = DataTable(
             results_frame,
-            columns=["Position", "Match", "Context", "Score"]
+            columns=["Sequence", "Position", "Match", "Context", "Score"]
         )
         self.results_table.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
@@ -249,6 +354,171 @@ class PatternMatchingPage(ctk.CTkFrame):
                     "Click column headers to sort by different criteria."
         )
         
-        # Add sample results
-        self.results_table.add_row(["0", "ATCG", "...ATCGATCG...", "100%"])
-        self.results_table.add_row(["10", "ATCG", "...ATCGATCG...", "100%"])
+        # Export frame
+        export_frame = ctk.CTkFrame(results_frame, fg_color="transparent")
+        export_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        ctk.CTkLabel(
+            export_frame,
+            text="Export Results:",
+            font=("Arial", 12, "bold")
+        ).pack(side="left", padx=(0, 10))
+        
+        export_formats = ["CSV", "JSON", "TXT", "HTML"]
+        for fmt in export_formats:
+            export_btn = ctk.CTkButton(
+                export_frame,
+                text=fmt,
+                width=60,
+                command=lambda f=fmt: self._export_results(f)
+            )
+            export_btn.pack(side="left", padx=5)
+    
+    def _load_initial_data(self):
+        """Load initial data for the page."""
+        # Load available algorithms
+        algorithms = self.viewmodel.get_state('available_algorithms', [])
+        if algorithms:
+            algorithm_names = [algo['name'] for algo in algorithms]
+            self.algorithm_menu.configure(values=algorithm_names)
+        
+        # Load projects (placeholder - would need project service integration)
+        # For now, just show placeholder
+        self.project_menu.configure(values=["Sample Project", "Demo Project"])
+    
+    def _on_viewmodel_state_changed(self, state_key: str, state_value):
+        """Handle ViewModel state changes."""
+        if state_key == "selected_algorithm":
+            self._update_algorithm_selection(state_value)
+        elif state_key == "available_sequences":
+            self._update_sequence_list(state_value)
+        elif state_key == "search_results":
+            self._update_results_table(state_value)
+        elif state_key == "is_searching":
+            self._update_search_state(state_value)
+        elif state_key == "search_progress":
+            self._update_progress(state_value)
+        elif state_key == "performance_comparison":
+            self._update_performance_display(state_value)
+    
+    def _on_project_selected(self, project_name: str):
+        """Handle project selection."""
+        # For demo purposes, use project ID 1
+        # In real implementation, would map project name to ID
+        if project_name != "Select Project...":
+            self.viewmodel.set_current_project(1)
+    
+    def _on_algorithm_selected(self, algorithm_name: str):
+        """Handle algorithm selection."""
+        algorithms = self.viewmodel.get_state('available_algorithms', [])
+        for algo in algorithms:
+            if algo['name'] == algorithm_name:
+                self.viewmodel.select_algorithm(algo['id'])
+                break
+    
+    def _on_pattern_changed(self, event):
+        """Handle pattern input changes."""
+        pattern = self.pattern_entry.get()
+        self.viewmodel.set_search_pattern(pattern)
+    
+    def _on_option_changed(self):
+        """Handle option checkbox changes."""
+        # Update ViewModel parameters based on checkboxes
+        params = {}
+        if hasattr(self, 'case_sensitive_cb'):
+            params['case_sensitive'] = self.case_sensitive_cb.get()
+        
+        # Update other parameters as needed
+        for param_name, value in params.items():
+            self.viewmodel.set_algorithm_parameter(param_name, value)
+    
+    def _execute_search(self):
+        """Execute pattern search."""
+        # Get selected sequences
+        selected_sequences = self._get_selected_sequences()
+        if selected_sequences:
+            self.viewmodel.select_sequences(selected_sequences)
+        
+        self.viewmodel.execute_pattern_search(compare_algorithms=False)
+    
+    def _compare_algorithms(self):
+        """Execute algorithm comparison."""
+        # Get selected sequences
+        selected_sequences = self._get_selected_sequences()
+        if selected_sequences:
+            self.viewmodel.select_sequences(selected_sequences)
+        
+        self.viewmodel.execute_pattern_search(compare_algorithms=True)
+    
+    def _export_results(self, format_type: str):
+        """Export results in specified format."""
+        include_performance = self.show_statistics_cb.get() if hasattr(self, 'show_statistics_cb') else False
+        self.viewmodel.export_results(format_type, include_performance)
+    
+    def _get_selected_sequences(self):
+        """Get list of selected sequence IDs."""
+        # For demo purposes, return [1, 2]
+        # In real implementation, would get from sequence selection UI
+        return [1, 2]
+    
+    def _update_algorithm_selection(self, algorithm):
+        """Update UI based on algorithm selection."""
+        if algorithm:
+            self.algorithm_menu.set(algorithm['name'])
+    
+    def _update_sequence_list(self, sequences):
+        """Update sequence selection list."""
+        # Clear existing sequence widgets
+        for widget in self.sequence_listbox.winfo_children():
+            widget.destroy()
+        
+        # Add sequence checkboxes
+        for sequence in sequences:
+            cb = ctk.CTkCheckBox(
+                self.sequence_listbox,
+                text=f"{sequence.header} ({sequence.length} bp)"
+            )
+            cb.pack(anchor="w", pady=2)
+    
+    def _update_results_table(self, results):
+        """Update results table with search results."""
+        # Clear existing results
+        self.results_table.clear()
+        
+        # Add new results
+        for result in results:
+            for match in result.get('matches', []):
+                self.results_table.add_row([
+                    result.get('sequence_header', 'Unknown'),
+                    str(match.get('position', 0)),
+                    match.get('match_text', ''),
+                    match.get('context', ''),
+                    f"{match.get('score', 0):.1f}%"
+                ])
+    
+    def _update_search_state(self, is_searching: bool):
+        """Update UI based on search state."""
+        if is_searching:
+            self.search_button.configure(text="⏹️ Cancel", command=self._cancel_search)
+            self.compare_button.configure(state="disabled")
+            self.progress_bar.pack(fill="x", padx=20, pady=(0, 10))
+            self.progress_bar.start()
+        else:
+            self.search_button.configure(text="🔍 Search", command=self._execute_search)
+            self.compare_button.configure(state="normal")
+            self.progress_bar.stop()
+            self.progress_bar.pack_forget()
+    
+    def _update_progress(self, progress: float):
+        """Update search progress."""
+        # Progress bar is indeterminate for now
+        pass
+    
+    def _update_performance_display(self, performance_data):
+        """Update performance comparison display."""
+        if performance_data:
+            show_info(f"Algorithm comparison completed: {len(performance_data)} algorithms tested")
+    
+    def _cancel_search(self):
+        """Cancel running search."""
+        self.viewmodel.cancel_pattern_search()
