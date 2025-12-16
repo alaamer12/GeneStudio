@@ -7,9 +7,9 @@ from .buttons import PrimaryButton, SecondaryButton, DangerButton, IconButton, B
 from .cards import StatCard, InfoCard, ActionCard
 from .tables import DataTable
 from .modals import Modal, ConfirmDialog, InputDialog, ProgressDialog
-from .plots import PlotCanvas, GCContentPlot, NucleotideDistributionPlot
+from .plots import PlotCanvas, InteractivePlotCanvas, GCContentPlot, NucleotideDistributionPlot
 from .charts import PieChart, DonutChart, AreaChart
-from .visualization_3d import Visualization3D
+from .visualization_3d import Visualization3D, Enhanced3DVisualization
 
 # New UX Components
 from .skeleton_loader import SkeletonCard, SkeletonTable, SkeletonText, SkeletonList
@@ -45,12 +45,14 @@ __all__ = [
     'InputDialog',
     'ProgressDialog',
     'PlotCanvas',
+    'InteractivePlotCanvas',
     'GCContentPlot',
     'NucleotideDistributionPlot',
     'PieChart',
     'DonutChart',
     'AreaChart',
     'Visualization3D',
+    'Enhanced3DVisualization',
     
     # New UX components
     'SkeletonCard',

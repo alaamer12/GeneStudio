@@ -8,6 +8,9 @@ from services.base_service import BaseService, ValidationError, ServiceError
 from repositories.sequence_repository import SequenceRepository
 from models.sequence_model_enhanced import Sequence
 from algorithms import fasta_reader, sequence_ops
+from utils.cache_manager import get_cache_manager, cached
+from utils.resource_manager import get_memory_manager, StreamingProcessor
+from utils.search_engine import get_search_engine
 
 
 class SequenceService(BaseService[Sequence]):
@@ -17,6 +20,10 @@ class SequenceService(BaseService[Sequence]):
         """Initialize sequence service."""
         super().__init__(SequenceRepository())
         self.sequence_repository = self.repository
+        self.cache_manager = get_cache_manager()
+        self.memory_manager = get_memory_manager()
+        self.search_engine = get_search_engine()
+        self.streaming_processor = StreamingProcessor(memory_manager=self.memory_manager)
     
     def create_sequence(self, project_id: int, header: str, sequence: str, 
                        sequence_type: str = "dna", notes: str = "", 
@@ -83,61 +90,396 @@ class SequenceService(BaseService[Sequence]):
         
         return self.execute_with_logging(operation, "get_sequences_by_project")
     
-    def import_fasta_file(self, filepath: str, project_id: int) -> Tuple[bool, List[Sequence]]:
-        """Import sequences from a FASTA file."""
+    def import_sequences_from_files(self, file_paths: List[str], project_id: int, 
+                                   import_options: Dict[str, Any] = None) -> Tuple[bool, List[Sequence]]:
+        """Import sequences from multiple files with format validation."""
         def operation():
+            import_options = import_options or {}
+            all_imported_sequences = []
+            
+            for file_path in file_paths:
+                try:
+                    # Validate and import single file
+                    success, sequences = self._import_single_file(file_path, project_id, import_options)
+                    if success:
+                        all_imported_sequences.extend(sequences)
+                    else:
+                        self.logger.warning(f"Failed to import {file_path}: {sequences}")
+                except Exception as e:
+                    self.logger.error(f"Error importing {file_path}: {e}")
+                    continue
+            
+            if not all_imported_sequences:
+                raise ServiceError("No sequences could be imported from any file")
+            
+            self.logger.info(f"Successfully imported {len(all_imported_sequences)} sequences from {len(file_paths)} files")
+            return all_imported_sequences
+        
+        return self.execute_with_logging(operation, "import_sequences_from_files")
+    
+    def import_fasta_file(self, filepath: str, project_id: int) -> Tuple[bool, List[Sequence]]:
+        """Import sequences from a single FASTA file."""
+        return self._import_single_file(filepath, project_id, {})
+    
+    def _import_single_file(self, filepath: str, project_id: int, 
+                           import_options: Dict[str, Any]) -> Tuple[bool, List[Sequence]]:
+        """Import sequences from a single file with format validation and streaming support."""
+        try:
             # Validate file path
             file_path = Path(filepath)
             if not file_path.exists():
-                raise ValidationError(f"FASTA file not found: {filepath}")
+                return False, f"File not found: {filepath}"
             
-            if not file_path.suffix.lower() in ['.fasta', '.fa', '.fas', '.fna']:
-                raise ValidationError("File must have a FASTA extension (.fasta, .fa, .fas, .fna)")
+            # Validate file format
+            format_validation = self._validate_file_format(file_path)
+            if not format_validation['is_valid']:
+                return False, format_validation['error']
             
-            # Check file size (limit to 100MB)
+            file_format = format_validation['format']
+            
+            # Check file size limits
             file_size = file_path.stat().st_size
-            if file_size > 100 * 1024 * 1024:  # 100MB
-                raise ValidationError("FASTA file is too large (max 100MB)")
+            max_size = import_options.get('max_file_size', 100 * 1024 * 1024)  # 100MB default
+            use_streaming = file_size > 10 * 1024 * 1024  # Use streaming for files > 10MB
             
-            # Parse FASTA file
-            try:
-                sequences_data = fasta_reader.read_fasta(filepath)
-            except Exception as e:
-                raise ValidationError(f"Failed to parse FASTA file: {e}")
+            if file_size > max_size:
+                return False, f"File is too large (max {max_size // (1024*1024)}MB)"
+            
+            # Parse file based on format
+            if file_format in ['fasta', 'multi-fasta']:
+                if use_streaming:
+                    return self._import_fasta_streaming(file_path, project_id, import_options)
+                else:
+                    sequences_data = self._parse_fasta_file(file_path, import_options)
+            else:
+                return False, f"Unsupported file format: {file_format}"
             
             if not sequences_data:
-                raise ValidationError("No valid sequences found in FASTA file")
+                return False, "No valid sequences found in file"
             
-            # Create sequence objects
+            # Create and save sequence objects
             imported_sequences = []
-            for header, seq in sequences_data:
+            total_sequences = len(sequences_data)
+            
+            for i, (header, seq) in enumerate(sequences_data):
                 try:
-                    # Detect sequence type
-                    seq_type = self._detect_sequence_type(seq)
+                    # Memory management for large imports
+                    if i % 100 == 0:
+                        self.memory_manager.auto_manage_memory()
                     
-                    # Create sequence
+                    # Apply import options
+                    if import_options.get('skip_duplicates', False):
+                        # Check for duplicate headers in project
+                        existing = self.sequence_repository.get_by_header(header, project_id)
+                        if existing:
+                            self.logger.info(f"Skipping duplicate sequence: {header}")
+                            continue
+                    
+                    # Detect or override sequence type
+                    if import_options.get('force_sequence_type'):
+                        seq_type = import_options['force_sequence_type']
+                    else:
+                        seq_type = self._detect_sequence_type(seq)
+                    
+                    # Apply sequence transformations
+                    processed_seq = self._process_sequence(seq, import_options)
+                    
+                    # Create sequence object
                     sequence = Sequence(
                         project_id=project_id,
                         header=header,
-                        sequence=seq,
-                        sequence_type=seq_type
+                        sequence=processed_seq,
+                        sequence_type=seq_type,
+                        notes=import_options.get('default_notes', ''),
+                        tags=import_options.get('default_tags', [])
                     )
+                    
+                    # Validate sequence
+                    is_valid, error_msg = self.validate_sequence_data(sequence)
+                    if not is_valid:
+                        self.logger.warning(f"Invalid sequence '{header}': {error_msg}")
+                        if not import_options.get('skip_invalid', True):
+                            return False, f"Invalid sequence '{header}': {error_msg}"
+                        continue
                     
                     # Save sequence
                     created_seq = self.sequence_repository.create(sequence)
                     imported_sequences.append(created_seq)
                     
+                    # Update search index
+                    self._update_search_index(created_seq)
+                    
                 except Exception as e:
                     self.logger.warning(f"Failed to import sequence '{header}': {e}")
+                    if not import_options.get('continue_on_error', True):
+                        return False, f"Failed to import sequence '{header}': {e}"
                     continue
             
             if not imported_sequences:
-                raise ServiceError("No sequences could be imported from the file")
+                return False, "No sequences could be imported from the file"
             
             self.logger.info(f"Successfully imported {len(imported_sequences)} sequences from {filepath}")
-            return imported_sequences
+            return True, imported_sequences
+            
+        except Exception as e:
+            self.logger.error(f"Unexpected error importing {filepath}: {e}")
+            return False, f"Import failed: {e}"
+    
+    def _import_fasta_streaming(self, file_path: Path, project_id: int, 
+                               import_options: Dict[str, Any]) -> Tuple[bool, List[Sequence]]:
+        """Import FASTA file using streaming for large files."""
+        try:
+            imported_sequences = []
+            current_header = None
+            current_sequence = []
+            sequence_count = 0
+            
+            def process_sequence(header: str, sequence: str) -> Optional[Sequence]:
+                """Process a single sequence."""
+                try:
+                    # Apply import options
+                    if import_options.get('skip_duplicates', False):
+                        existing = self.sequence_repository.get_by_header(header, project_id)
+                        if existing:
+                            return None
+                    
+                    # Detect sequence type
+                    if import_options.get('force_sequence_type'):
+                        seq_type = import_options['force_sequence_type']
+                    else:
+                        seq_type = self._detect_sequence_type(sequence)
+                    
+                    # Process sequence
+                    processed_seq = self._process_sequence(sequence, import_options)
+                    
+                    # Create sequence object
+                    seq_obj = Sequence(
+                        project_id=project_id,
+                        header=header,
+                        sequence=processed_seq,
+                        sequence_type=seq_type,
+                        notes=import_options.get('default_notes', ''),
+                        tags=import_options.get('default_tags', [])
+                    )
+                    
+                    # Validate
+                    is_valid, error_msg = self.validate_sequence_data(seq_obj)
+                    if not is_valid:
+                        self.logger.warning(f"Invalid sequence '{header}': {error_msg}")
+                        return None
+                    
+                    # Save
+                    created_seq = self.sequence_repository.create(seq_obj)
+                    self._update_search_index(created_seq)
+                    
+                    return created_seq
+                    
+                except Exception as e:
+                    self.logger.warning(f"Failed to process sequence '{header}': {e}")
+                    return None
+            
+            # Stream process the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    
+                    if line.startswith('>'):
+                        # Process previous sequence if exists
+                        if current_header and current_sequence:
+                            seq_data = ''.join(current_sequence)
+                            result = process_sequence(current_header, seq_data)
+                            if result:
+                                imported_sequences.append(result)
+                                sequence_count += 1
+                        
+                        # Start new sequence
+                        current_header = line[1:]  # Remove '>'
+                        current_sequence = []
+                        
+                        # Memory management
+                        if sequence_count % 50 == 0:
+                            self.memory_manager.auto_manage_memory()
+                    
+                    elif line and current_header:
+                        current_sequence.append(line)
+                
+                # Process last sequence
+                if current_header and current_sequence:
+                    seq_data = ''.join(current_sequence)
+                    result = process_sequence(current_header, seq_data)
+                    if result:
+                        imported_sequences.append(result)
+            
+            if not imported_sequences:
+                return False, "No sequences could be imported from the file"
+            
+            self.logger.info(f"Successfully streamed import of {len(imported_sequences)} sequences from {file_path}")
+            return True, imported_sequences
+            
+        except Exception as e:
+            self.logger.error(f"Streaming import failed for {file_path}: {e}")
+            return False, f"Streaming import failed: {e}"
+    
+    def _update_search_index(self, sequence: Sequence):
+        """Update search index with new sequence."""
+        try:
+            search_data = {
+                'id': sequence.id,
+                'title': sequence.header,
+                'content': f"{sequence.header} {sequence.notes} {' '.join(sequence.tags)}",
+                'sequence_type': sequence.sequence_type,
+                'length': sequence.length,
+                'created_date': sequence.created_date
+            }
+            
+            self.search_engine.update_index('sequence', str(sequence.id), search_data)
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to update search index for sequence {sequence.id}: {e}")
+    
+    def _validate_file_format(self, file_path: Path) -> Dict[str, Any]:
+        """Validate file format and return format information."""
+        try:
+            # Check file extension
+            extension = file_path.suffix.lower()
+            
+            # Supported FASTA extensions
+            fasta_extensions = ['.fasta', '.fa', '.fas', '.fna', '.ffn', '.faa', '.frn']
+            
+            if extension in fasta_extensions:
+                # Validate FASTA content
+                return self._validate_fasta_content(file_path)
+            else:
+                return {
+                    'is_valid': False,
+                    'error': f"Unsupported file extension: {extension}. Supported: {', '.join(fasta_extensions)}",
+                    'format': None
+                }
         
-        return self.execute_with_logging(operation, "import_fasta_file")
+        except Exception as e:
+            return {
+                'is_valid': False,
+                'error': f"File validation error: {e}",
+                'format': None
+            }
+    
+    def _validate_fasta_content(self, file_path: Path) -> Dict[str, Any]:
+        """Validate FASTA file content."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                # Read first few lines to validate format
+                lines = []
+                for i, line in enumerate(f):
+                    lines.append(line.strip())
+                    if i >= 10:  # Check first 10 lines
+                        break
+            
+            if not lines:
+                return {
+                    'is_valid': False,
+                    'error': "File is empty",
+                    'format': None
+                }
+            
+            # Check for FASTA header
+            has_header = False
+            sequence_count = 0
+            
+            for line in lines:
+                if line.startswith('>'):
+                    has_header = True
+                    sequence_count += 1
+                elif line and not line.startswith('>') and has_header:
+                    # Validate sequence characters
+                    if not self._is_valid_sequence_line(line):
+                        return {
+                            'is_valid': False,
+                            'error': f"Invalid sequence characters in line: {line[:50]}...",
+                            'format': None
+                        }
+            
+            if not has_header:
+                return {
+                    'is_valid': False,
+                    'error': "No FASTA headers found (lines starting with '>')",
+                    'format': None
+                }
+            
+            format_type = 'multi-fasta' if sequence_count > 1 else 'fasta'
+            
+            return {
+                'is_valid': True,
+                'error': None,
+                'format': format_type,
+                'sequence_count': sequence_count
+            }
+        
+        except UnicodeDecodeError:
+            return {
+                'is_valid': False,
+                'error': "File encoding error. Please ensure file is UTF-8 encoded.",
+                'format': None
+            }
+        except Exception as e:
+            return {
+                'is_valid': False,
+                'error': f"Content validation error: {e}",
+                'format': None
+            }
+    
+    def _is_valid_sequence_line(self, line: str) -> bool:
+        """Check if a line contains valid sequence characters."""
+        # Allow common sequence characters and whitespace
+        valid_chars = set('ATCGRYSWKMBDHVN-.*atcgryswkmbdhvn ')
+        return all(c in valid_chars for c in line)
+    
+    def _parse_fasta_file(self, file_path: Path, import_options: Dict[str, Any]) -> List[Tuple[str, str]]:
+        """Parse FASTA file with import options."""
+        try:
+            sequences_data = fasta_reader.read_fasta(str(file_path))
+            
+            # Apply import filters
+            if import_options.get('min_length'):
+                min_len = import_options['min_length']
+                sequences_data = [(h, s) for h, s in sequences_data if len(s) >= min_len]
+            
+            if import_options.get('max_length'):
+                max_len = import_options['max_length']
+                sequences_data = [(h, s) for h, s in sequences_data if len(s) <= max_len]
+            
+            if import_options.get('header_filter'):
+                header_pattern = import_options['header_filter']
+                import re
+                sequences_data = [(h, s) for h, s in sequences_data if re.search(header_pattern, h)]
+            
+            return sequences_data
+            
+        except Exception as e:
+            raise ValidationError(f"Failed to parse FASTA file: {e}")
+    
+    def _process_sequence(self, sequence: str, import_options: Dict[str, Any]) -> str:
+        """Process sequence based on import options."""
+        processed_seq = sequence
+        
+        # Remove whitespace and newlines
+        processed_seq = ''.join(processed_seq.split())
+        
+        # Convert to uppercase if requested
+        if import_options.get('uppercase', True):
+            processed_seq = processed_seq.upper()
+        
+        # Remove invalid characters if requested
+        if import_options.get('clean_sequence', False):
+            valid_chars = set('ATCGRYSWKMBDHVN')
+            processed_seq = ''.join(c for c in processed_seq if c in valid_chars)
+        
+        # Replace ambiguous characters if requested
+        if import_options.get('replace_ambiguous', False):
+            replacements = import_options.get('ambiguous_replacements', {'N': 'A'})
+            for old_char, new_char in replacements.items():
+                processed_seq = processed_seq.replace(old_char, new_char)
+        
+        return processed_seq
     
     def export_sequences_to_fasta(self, sequence_ids: List[int], output_path: str) -> Tuple[bool, str]:
         """Export sequences to a FASTA file."""
@@ -191,9 +533,17 @@ class SequenceService(BaseService[Sequence]):
         
         return self.execute_with_logging(operation, "get_sequence_statistics")
     
+    @cached(ttl=3600)  # Cache for 1 hour
     def calculate_sequence_properties(self, sequence: Sequence) -> Tuple[bool, Dict[str, Any]]:
         """Calculate additional properties for a sequence."""
         def operation():
+            # Check cache first using sequence hash as key
+            cache_key = f"seq_props_{sequence.id}_{hash(sequence.sequence)}"
+            cached_props = self.cache_manager.get(cache_key)
+            
+            if cached_props is not None:
+                return cached_props
+            
             properties = {
                 'length': sequence.length,
                 'gc_percentage': sequence.gc_percentage
@@ -252,6 +602,9 @@ class SequenceService(BaseService[Sequence]):
                 
                 molecular_weight = sum(aa_weights.get(aa, 0) for aa in seq if aa != '*')
                 properties['molecular_weight'] = molecular_weight
+            
+            # Cache the result
+            self.cache_manager.put(cache_key, properties, ttl=3600)
             
             return properties
         

@@ -1,16 +1,16 @@
-"""Search engine with full-text indexing and fuzzy matching capabilities."""
+"""Advanced search engine with indexing and fuzzy matching capabilities."""
 
 import re
 import json
-from typing import Dict, List, Any, Optional, Tuple, Set
+import sqlite3
+from typing import List, Dict, Any, Optional, Set, Tuple
+from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from difflib import SequenceMatcher
 import threading
-import os
-
+import time
+from difflib import SequenceMatcher
 from utils.logger import get_logger
-from utils.platform_dirs import get_app_data_dir
 
 
 @dataclass
@@ -30,464 +30,550 @@ class SearchResult:
         result = asdict(self)
         result['created_date'] = self.created_date.isoformat()
         return result
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SearchResult':
-        """Create from dictionary."""
-        data['created_date'] = datetime.fromisoformat(data['created_date'])
-        return cls(**data)
 
 
 class SearchIndex:
     """Full-text search index for a specific data type."""
     
-    def __init__(self, data_type: str):
-        """Initialize search index."""
+    def __init__(self, data_type: str, index_dir: str = "data/search_indices"):
         self.data_type = data_type
-        self.documents: Dict[str, Dict[str, Any]] = {}
-        self.word_index: Dict[str, Set[str]] = {}  # word -> set of document IDs
-        self.ngram_index: Dict[str, Set[str]] = {}  # ngram -> set of document IDs
-        self._lock = threading.RLock()
-        self.logger = get_logger(__name__)
+        self.index_dir = Path(index_dir)
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.db_path = self.index_dir / f"{data_type}_index.db"
+        self.logger = get_logger(f"SearchIndex_{data_type}")
+        
+        self._init_database()
     
-    def add_document(self, doc_id: str, title: str, content: str, metadata: Dict[str, Any] = None):
-        """Add or update a document in the index."""
-        with self._lock:
-            # Store document
-            self.documents[doc_id] = {
-                'title': title,
-                'content': content,
-                'metadata': metadata or {},
-                'indexed_date': datetime.now()
-            }
+    def _init_database(self):
+        """Initialize SQLite FTS database."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Create FTS5 table for full-text search
+            conn.execute(f"""
+                CREATE VIRTUAL TABLE IF NOT EXISTS {self.data_type}_fts 
+                USING fts5(
+                    id UNINDEXED,
+                    title,
+                    content,
+                    metadata UNINDEXED,
+                    created_date UNINDEXED
+                )
+            """)
             
-            # Index words and n-grams
-            self._index_text(doc_id, title + " " + content)
+            # Create metadata table for additional filtering
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self.data_type}_meta (
+                    id TEXT PRIMARY KEY,
+                    title TEXT,
+                    content_length INTEGER,
+                    metadata TEXT,
+                    created_date TEXT,
+                    last_updated TEXT
+                )
+            """)
+            
+            conn.commit()
+    
+    def add_document(self, doc_id: str, title: str, content: str, 
+                    metadata: Dict[str, Any] = None, created_date: datetime = None):
+        """Add or update a document in the index."""
+        metadata = metadata or {}
+        created_date = created_date or datetime.now()
+        
+        metadata_json = json.dumps(metadata)
+        created_date_str = created_date.isoformat()
+        
+        with sqlite3.connect(self.db_path) as conn:
+            # Insert into FTS table
+            conn.execute(f"""
+                INSERT OR REPLACE INTO {self.data_type}_fts 
+                (id, title, content, metadata, created_date)
+                VALUES (?, ?, ?, ?, ?)
+            """, (doc_id, title, content, metadata_json, created_date_str))
+            
+            # Insert into metadata table
+            conn.execute(f"""
+                INSERT OR REPLACE INTO {self.data_type}_meta
+                (id, title, content_length, metadata, created_date, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (doc_id, title, len(content), metadata_json, 
+                  created_date_str, datetime.now().isoformat()))
+            
+            conn.commit()
     
     def remove_document(self, doc_id: str):
         """Remove a document from the index."""
-        with self._lock:
-            if doc_id in self.documents:
-                # Remove from word index
-                for word_set in self.word_index.values():
-                    word_set.discard(doc_id)
-                
-                # Remove from n-gram index
-                for ngram_set in self.ngram_index.values():
-                    ngram_set.discard(doc_id)
-                
-                # Remove document
-                del self.documents[doc_id]
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(f"DELETE FROM {self.data_type}_fts WHERE id = ?", (doc_id,))
+            conn.execute(f"DELETE FROM {self.data_type}_meta WHERE id = ?", (doc_id,))
+            conn.commit()
     
-    def search(self, query: str, fuzzy_threshold: float = 0.6) -> List[Tuple[str, float]]:
-        """Search for documents matching the query."""
-        with self._lock:
-            if not query.strip():
-                return []
-            
-            query_words = self._tokenize(query.lower())
-            if not query_words:
-                return []
-            
-            # Find matching documents
-            doc_scores: Dict[str, float] = {}
-            
-            for word in query_words:
-                # Exact word matches
-                if word in self.word_index:
-                    for doc_id in self.word_index[word]:
-                        doc_scores[doc_id] = doc_scores.get(doc_id, 0) + 1.0
-                
-                # Fuzzy word matches
-                for indexed_word in self.word_index:
-                    similarity = SequenceMatcher(None, word, indexed_word).ratio()
-                    if similarity >= fuzzy_threshold and similarity < 1.0:
-                        for doc_id in self.word_index[indexed_word]:
-                            doc_scores[doc_id] = doc_scores.get(doc_id, 0) + similarity * 0.8
-                
-                # N-gram matches for partial word matching
-                ngrams = self._generate_ngrams(word, 3)
-                for ngram in ngrams:
-                    if ngram in self.ngram_index:
-                        for doc_id in self.ngram_index[ngram]:
-                            doc_scores[doc_id] = doc_scores.get(doc_id, 0) + 0.3
-            
-            # Normalize scores by query length and document relevance
-            for doc_id in doc_scores:
-                doc = self.documents[doc_id]
-                # Boost title matches
-                title_matches = sum(1 for word in query_words if word in doc['title'].lower())
-                if title_matches > 0:
-                    doc_scores[doc_id] += title_matches * 0.5
-                
-                # Normalize by query length
-                doc_scores[doc_id] /= len(query_words)
-            
-            # Sort by score and return
-            return sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
-    
-    def _index_text(self, doc_id: str, text: str):
-        """Index text for a document."""
-        words = self._tokenize(text.lower())
+    def search(self, query: str, limit: int = 50, filters: Dict[str, Any] = None) -> List[SearchResult]:
+        """Search documents in the index."""
+        if not query.strip():
+            return []
         
-        # Index words
-        for word in words:
-            if word not in self.word_index:
-                self.word_index[word] = set()
-            self.word_index[word].add(doc_id)
+        # Prepare FTS query
+        fts_query = self._prepare_fts_query(query)
         
-        # Index n-grams for fuzzy matching
-        for word in words:
-            ngrams = self._generate_ngrams(word, 3)
-            for ngram in ngrams:
-                if ngram not in self.ngram_index:
-                    self.ngram_index[ngram] = set()
-                self.ngram_index[ngram].add(doc_id)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            
+            # Base FTS search
+            sql = f"""
+                SELECT fts.id, fts.title, fts.content, fts.metadata, fts.created_date,
+                       bm25(fts) as relevance_score
+                FROM {self.data_type}_fts fts
+                WHERE fts MATCH ?
+                ORDER BY relevance_score
+                LIMIT ?
+            """
+            
+            cursor = conn.execute(sql, (fts_query, limit))
+            results = []
+            
+            for row in cursor:
+                try:
+                    metadata = json.loads(row['metadata']) if row['metadata'] else {}
+                    created_date = datetime.fromisoformat(row['created_date'])
+                    
+                    # Calculate highlight positions
+                    highlight_positions = self._find_highlight_positions(row['content'], query)
+                    
+                    result = SearchResult(
+                        id=row['id'],
+                        type=self.data_type,
+                        title=row['title'],
+                        content=row['content'],
+                        relevance_score=abs(row['relevance_score']),  # BM25 returns negative scores
+                        metadata=metadata,
+                        highlight_positions=highlight_positions,
+                        created_date=created_date
+                    )
+                    
+                    # Apply additional filters
+                    if self._passes_filters(result, filters):
+                        results.append(result)
+                
+                except Exception as e:
+                    self.logger.warning(f"Error processing search result: {e}")
+                    continue
+            
+            return results
     
-    def _tokenize(self, text: str) -> List[str]:
-        """Tokenize text into words."""
-        # Remove special characters and split
-        text = re.sub(r'[^\w\s]', ' ', text)
-        words = text.split()
-        # Filter out very short words
-        return [word for word in words if len(word) >= 2]
+    def _prepare_fts_query(self, query: str) -> str:
+        """Prepare query for FTS5."""
+        # Clean and tokenize query
+        tokens = re.findall(r'\w+', query.lower())
+        
+        if not tokens:
+            return query
+        
+        # Build FTS query with prefix matching
+        fts_tokens = []
+        for token in tokens:
+            if len(token) >= 3:
+                fts_tokens.append(f"{token}*")  # Prefix matching
+            else:
+                fts_tokens.append(token)
+        
+        return " ".join(fts_tokens)
     
-    def _generate_ngrams(self, text: str, n: int) -> List[str]:
-        """Generate n-grams from text."""
-        if len(text) < n:
-            return [text]
-        return [text[i:i+n] for i in range(len(text) - n + 1)]
+    def _find_highlight_positions(self, content: str, query: str) -> List[Tuple[int, int]]:
+        """Find positions of query terms in content for highlighting."""
+        positions = []
+        tokens = re.findall(r'\w+', query.lower())
+        
+        for token in tokens:
+            if len(token) < 2:
+                continue
+            
+            # Find all occurrences of the token
+            pattern = re.compile(re.escape(token), re.IGNORECASE)
+            for match in pattern.finditer(content):
+                positions.append((match.start(), match.end()))
+        
+        # Merge overlapping positions
+        if positions:
+            positions.sort()
+            merged = [positions[0]]
+            
+            for start, end in positions[1:]:
+                last_start, last_end = merged[-1]
+                if start <= last_end + 1:  # Overlapping or adjacent
+                    merged[-1] = (last_start, max(last_end, end))
+                else:
+                    merged.append((start, end))
+            
+            positions = merged
+        
+        return positions
     
-    def get_document_count(self) -> int:
-        """Get number of indexed documents."""
-        return len(self.documents)
+    def _passes_filters(self, result: SearchResult, filters: Dict[str, Any]) -> bool:
+        """Check if result passes additional filters."""
+        if not filters:
+            return True
+        
+        # Date range filter
+        if 'date_range' in filters:
+            start_date, end_date = filters['date_range']
+            if not (start_date <= result.created_date <= end_date):
+                return False
+        
+        # Metadata filters
+        for key, value in filters.items():
+            if key.startswith('meta_'):
+                meta_key = key[5:]  # Remove 'meta_' prefix
+                if meta_key in result.metadata:
+                    if result.metadata[meta_key] != value:
+                        return False
+        
+        return True
     
-    def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        """Get document by ID."""
-        return self.documents.get(doc_id)
+    def get_suggestions(self, partial_query: str, limit: int = 10) -> List[str]:
+        """Get search suggestions based on partial query."""
+        if len(partial_query) < 2:
+            return []
+        
+        with sqlite3.connect(self.db_path) as conn:
+            # Get titles that start with the partial query
+            cursor = conn.execute(f"""
+                SELECT DISTINCT title
+                FROM {self.data_type}_meta
+                WHERE title LIKE ? 
+                ORDER BY title
+                LIMIT ?
+            """, (f"{partial_query}%", limit))
+            
+            suggestions = [row[0] for row in cursor]
+            
+            # If not enough suggestions, try fuzzy matching
+            if len(suggestions) < limit:
+                cursor = conn.execute(f"""
+                    SELECT DISTINCT title
+                    FROM {self.data_type}_meta
+                    WHERE title NOT LIKE ?
+                    ORDER BY title
+                    LIMIT ?
+                """, (f"{partial_query}%", limit * 2))
+                
+                all_titles = [row[0] for row in cursor]
+                
+                # Use fuzzy matching to find similar titles
+                fuzzy_matches = []
+                for title in all_titles:
+                    similarity = SequenceMatcher(None, partial_query.lower(), title.lower()).ratio()
+                    if similarity > 0.6:  # 60% similarity threshold
+                        fuzzy_matches.append((title, similarity))
+                
+                # Sort by similarity and add to suggestions
+                fuzzy_matches.sort(key=lambda x: x[1], reverse=True)
+                for title, _ in fuzzy_matches[:limit - len(suggestions)]:
+                    suggestions.append(title)
+            
+            return suggestions
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get index statistics."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(f"SELECT COUNT(*) FROM {self.data_type}_meta")
+            doc_count = cursor.fetchone()[0]
+            
+            cursor = conn.execute(f"""
+                SELECT AVG(content_length), MAX(content_length), MIN(content_length)
+                FROM {self.data_type}_meta
+            """)
+            avg_length, max_length, min_length = cursor.fetchone()
+            
+            return {
+                'document_count': doc_count,
+                'average_content_length': avg_length or 0,
+                'max_content_length': max_length or 0,
+                'min_content_length': min_length or 0,
+                'index_size_mb': self.db_path.stat().st_size / (1024 * 1024) if self.db_path.exists() else 0
+            }
 
 
 class SearchEngine:
     """Advanced search engine with indexing and fuzzy matching."""
     
-    def __init__(self, index_path: Optional[str] = None):
-        """Initialize search engine."""
-        self.index_path = index_path or os.path.join(get_app_data_dir(), "search_index")
+    def __init__(self, index_dir: str = "data/search_indices"):
+        self.index_dir = Path(index_dir)
+        self.index_dir.mkdir(parents=True, exist_ok=True)
+        
         self.indices: Dict[str, SearchIndex] = {}
-        self.fuzzy_threshold = 0.6
-        self.search_history: List[Dict[str, Any]] = []
+        self.fuzzy_threshold = 0.8
+        self.logger = get_logger(self.__class__.__name__)
+        
+        # Search history
+        self.search_history: List[str] = []
         self.max_history = 100
+        
+        # Thread safety
         self._lock = threading.RLock()
-        self.logger = get_logger(__name__)
-        
-        # Ensure index directory exists
-        os.makedirs(self.index_path, exist_ok=True)
-        
-        # Load existing indices
-        self._load_indices()
     
-    def build_index(self, data_type: str, items: List[Dict[str, Any]]) -> None:
-        """Build search index for specific data type."""
-        with self._lock:
-            self.logger.info(f"Building search index for {data_type} with {len(items)} items")
-            
-            # Create new index
-            index = SearchIndex(data_type)
-            
-            # Add items to index
-            for item in items:
-                doc_id = str(item.get('id', ''))
-                title = item.get('title', item.get('name', item.get('header', '')))
-                content = item.get('content', item.get('description', item.get('sequence', '')))
-                metadata = {k: v for k, v in item.items() if k not in ['id', 'title', 'name', 'header', 'content', 'description', 'sequence']}
-                
-                if doc_id and (title or content):
-                    index.add_document(doc_id, title, content, metadata)
-            
-            # Store index
-            self.indices[data_type] = index
-            
-            # Save to disk
-            self._save_index(data_type, index)
-            
-            self.logger.info(f"Built search index for {data_type}: {index.get_document_count()} documents")
-    
-    def search(self, query: str, data_types: Optional[List[str]] = None, 
-               filters: Optional[Dict[str, Any]] = None, limit: int = 50) -> List[SearchResult]:
-        """Perform fuzzy search across indexed data."""
-        with self._lock:
-            if not query.strip():
-                return []
-            
-            # Record search in history
-            self._add_to_history(query, data_types, filters)
-            
-            # Determine which indices to search
-            search_indices = data_types or list(self.indices.keys())
-            
-            all_results = []
-            
-            for data_type in search_indices:
-                if data_type not in self.indices:
-                    continue
-                
-                index = self.indices[data_type]
-                matches = index.search(query, self.fuzzy_threshold)
-                
-                # Convert to SearchResult objects
-                for doc_id, score in matches:
-                    doc = index.get_document(doc_id)
-                    if doc and self._passes_filters(doc, filters):
-                        # Find highlight positions
-                        highlight_positions = self._find_highlights(query, doc['title'] + " " + doc['content'])
-                        
-                        result = SearchResult(
-                            id=doc_id,
-                            type=data_type,
-                            title=doc['title'],
-                            content=doc['content'],
-                            relevance_score=score,
-                            metadata=doc['metadata'],
-                            highlight_positions=highlight_positions,
-                            created_date=doc['indexed_date']
-                        )
-                        all_results.append(result)
-            
-            # Sort by relevance score and limit results
-            all_results.sort(key=lambda x: x.relevance_score, reverse=True)
-            return all_results[:limit]
-    
-    def suggest(self, partial_query: str, limit: int = 5) -> List[str]:
-        """Provide search suggestions based on query history and index."""
-        with self._lock:
-            if not partial_query.strip():
-                return []
-            
-            suggestions = set()
-            partial_lower = partial_query.lower()
-            
-            # Suggestions from search history
-            for entry in reversed(self.search_history):
-                query = entry['query'].lower()
-                if partial_lower in query and query != partial_lower:
-                    suggestions.add(entry['query'])
-                    if len(suggestions) >= limit:
-                        break
-            
-            # Suggestions from indexed words
-            if len(suggestions) < limit:
-                for data_type, index in self.indices.items():
-                    for word in index.word_index:
-                        if partial_lower in word and len(word) > len(partial_lower):
-                            suggestions.add(word.capitalize())
-                            if len(suggestions) >= limit:
-                                break
-                    if len(suggestions) >= limit:
-                        break
-            
-            return list(suggestions)[:limit]
-    
-    def update_index(self, data_type: str, item_id: str, item_data: Dict[str, Any]) -> None:
-        """Update index when data changes."""
+    def get_index(self, data_type: str) -> SearchIndex:
+        """Get or create index for data type."""
         with self._lock:
             if data_type not in self.indices:
-                # Create index if it doesn't exist
-                self.indices[data_type] = SearchIndex(data_type)
-            
-            index = self.indices[data_type]
-            
-            title = item_data.get('title', item_data.get('name', item_data.get('header', '')))
-            content = item_data.get('content', item_data.get('description', item_data.get('sequence', '')))
-            metadata = {k: v for k, v in item_data.items() if k not in ['id', 'title', 'name', 'header', 'content', 'description', 'sequence']}
-            
-            if title or content:
-                index.add_document(item_id, title, content, metadata)
-                self._save_index(data_type, index)
+                self.indices[data_type] = SearchIndex(data_type, str(self.index_dir))
+            return self.indices[data_type]
     
-    def remove_from_index(self, data_type: str, item_id: str) -> None:
-        """Remove item from index."""
-        with self._lock:
+    def build_index(self, data_type: str, items: List[Dict[str, Any]]):
+        """Build search index for specific data type."""
+        index = self.get_index(data_type)
+        
+        self.logger.info(f"Building index for {data_type} with {len(items)} items")
+        
+        for item in items:
+            try:
+                doc_id = str(item.get('id', ''))
+                title = item.get('title', item.get('header', item.get('name', '')))
+                content = item.get('content', item.get('sequence', item.get('description', '')))
+                metadata = {k: v for k, v in item.items() if k not in ['id', 'title', 'content']}
+                created_date = item.get('created_date')
+                
+                if isinstance(created_date, str):
+                    created_date = datetime.fromisoformat(created_date)
+                elif not isinstance(created_date, datetime):
+                    created_date = datetime.now()
+                
+                index.add_document(doc_id, title, content, metadata, created_date)
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to index item {item.get('id', 'unknown')}: {e}")
+        
+        self.logger.info(f"Index built for {data_type}")
+    
+    def search(self, query: str, data_types: List[str] = None, 
+               filters: Dict[str, Any] = None) -> List[SearchResult]:
+        """Perform fuzzy search across indexed data."""
+        if not query.strip():
+            return []
+        
+        # Add to search history
+        self._add_to_history(query)
+        
+        # Default to all available indices if no types specified
+        if data_types is None:
+            data_types = list(self.indices.keys())
+        
+        all_results = []
+        
+        for data_type in data_types:
             if data_type in self.indices:
-                self.indices[data_type].remove_document(item_id)
-                self._save_index(data_type, self.indices[data_type])
-    
-    def get_search_history(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get recent search history."""
-        return list(reversed(self.search_history[-limit:]))
-    
-    def clear_search_history(self) -> None:
-        """Clear search history."""
-        with self._lock:
-            self.search_history.clear()
-            self._save_history()
-    
-    def get_index_stats(self) -> Dict[str, Any]:
-        """Get search index statistics."""
-        stats = {}
-        for data_type, index in self.indices.items():
-            stats[data_type] = {
-                'document_count': index.get_document_count(),
-                'word_count': len(index.word_index),
-                'ngram_count': len(index.ngram_index)
-            }
-        return stats
-    
-    def _add_to_history(self, query: str, data_types: Optional[List[str]], filters: Optional[Dict[str, Any]]):
-        """Add search to history."""
-        entry = {
-            'query': query,
-            'data_types': data_types,
-            'filters': filters,
-            'timestamp': datetime.now()
-        }
+                try:
+                    results = self.indices[data_type].search(query, filters=filters)
+                    all_results.extend(results)
+                except Exception as e:
+                    self.logger.error(f"Search failed for {data_type}: {e}")
         
-        # Remove duplicate if exists
-        self.search_history = [h for h in self.search_history if h['query'] != query]
+        # Sort by relevance score
+        all_results.sort(key=lambda x: x.relevance_score, reverse=True)
         
-        # Add to end
-        self.search_history.append(entry)
+        # Apply fuzzy matching if needed
+        if len(all_results) < 10:  # If few results, try fuzzy matching
+            fuzzy_results = self._fuzzy_search(query, data_types, filters)
+            
+            # Merge results, avoiding duplicates
+            existing_ids = {r.id for r in all_results}
+            for result in fuzzy_results:
+                if result.id not in existing_ids:
+                    all_results.append(result)
+        
+        return all_results
+    
+    def _fuzzy_search(self, query: str, data_types: List[str], 
+                     filters: Dict[str, Any] = None) -> List[SearchResult]:
+        """Perform fuzzy search when exact search yields few results."""
+        fuzzy_results = []
+        
+        # Generate fuzzy query variations
+        query_variations = self._generate_fuzzy_queries(query)
+        
+        for variation in query_variations:
+            for data_type in data_types:
+                if data_type in self.indices:
+                    try:
+                        results = self.indices[data_type].search(variation, limit=20, filters=filters)
+                        
+                        # Adjust relevance scores for fuzzy matches
+                        for result in results:
+                            similarity = SequenceMatcher(None, query.lower(), variation.lower()).ratio()
+                            result.relevance_score *= similarity * 0.8  # Reduce score for fuzzy matches
+                        
+                        fuzzy_results.extend(results)
+                        
+                    except Exception as e:
+                        self.logger.warning(f"Fuzzy search failed for {data_type}: {e}")
+        
+        return fuzzy_results
+    
+    def _generate_fuzzy_queries(self, query: str) -> List[str]:
+        """Generate fuzzy query variations."""
+        variations = []
+        tokens = query.split()
+        
+        # Single token variations
+        for token in tokens:
+            if len(token) > 3:
+                # Remove last character (typo simulation)
+                variations.append(token[:-1])
+                # Add wildcard
+                variations.append(f"{token[:-1]}*")
+        
+        # Partial queries
+        if len(tokens) > 1:
+            # First half of tokens
+            variations.append(" ".join(tokens[:len(tokens)//2]))
+            # Last half of tokens
+            variations.append(" ".join(tokens[len(tokens)//2:]))
+        
+        return variations
+    
+    def suggest(self, partial_query: str) -> List[str]:
+        """Provide search suggestions based on query history and indices."""
+        suggestions = set()
+        
+        # Get suggestions from search history
+        history_suggestions = self._get_history_suggestions(partial_query)
+        suggestions.update(history_suggestions)
+        
+        # Get suggestions from indices
+        for index in self.indices.values():
+            try:
+                index_suggestions = index.get_suggestions(partial_query, limit=5)
+                suggestions.update(index_suggestions)
+            except Exception as e:
+                self.logger.warning(f"Failed to get suggestions from index: {e}")
+        
+        # Sort by relevance (history first, then alphabetical)
+        sorted_suggestions = []
+        
+        # Add history suggestions first
+        for suggestion in history_suggestions:
+            if suggestion in suggestions:
+                sorted_suggestions.append(suggestion)
+                suggestions.remove(suggestion)
+        
+        # Add remaining suggestions alphabetically
+        sorted_suggestions.extend(sorted(suggestions))
+        
+        return sorted_suggestions[:10]  # Limit to 10 suggestions
+    
+    def _get_history_suggestions(self, partial_query: str) -> List[str]:
+        """Get suggestions from search history."""
+        suggestions = []
+        partial_lower = partial_query.lower()
+        
+        for query in reversed(self.search_history):  # Most recent first
+            if query.lower().startswith(partial_lower) and query not in suggestions:
+                suggestions.append(query)
+                if len(suggestions) >= 5:
+                    break
+        
+        return suggestions
+    
+    def _add_to_history(self, query: str):
+        """Add query to search history."""
+        query = query.strip()
+        if not query or len(query) < 2:
+            return
+        
+        # Remove if already exists
+        if query in self.search_history:
+            self.search_history.remove(query)
+        
+        # Add to front
+        self.search_history.insert(0, query)
         
         # Limit history size
         if len(self.search_history) > self.max_history:
-            self.search_history = self.search_history[-self.max_history:]
-        
-        # Save to disk
-        self._save_history()
+            self.search_history = self.search_history[:self.max_history]
     
-    def _passes_filters(self, doc: Dict[str, Any], filters: Optional[Dict[str, Any]]) -> bool:
-        """Check if document passes filters."""
-        if not filters:
-            return True
+    def update_index(self, data_type: str, item_id: str, item_data: Dict[str, Any]):
+        """Update index when data changes."""
+        index = self.get_index(data_type)
         
-        for key, value in filters.items():
-            if key in doc['metadata']:
-                if doc['metadata'][key] != value:
-                    return False
-            elif key == 'date_range':
-                # Handle date range filtering
-                doc_date = doc.get('indexed_date', datetime.min)
-                start_date = value.get('start')
-                end_date = value.get('end')
-                if start_date and doc_date < start_date:
-                    return False
-                if end_date and doc_date > end_date:
-                    return False
-        
-        return True
-    
-    def _find_highlights(self, query: str, text: str) -> List[Tuple[int, int]]:
-        """Find positions to highlight in text."""
-        highlights = []
-        query_words = re.findall(r'\w+', query.lower())
-        text_lower = text.lower()
-        
-        for word in query_words:
-            start = 0
-            while True:
-                pos = text_lower.find(word, start)
-                if pos == -1:
-                    break
-                highlights.append((pos, pos + len(word)))
-                start = pos + 1
-        
-        # Merge overlapping highlights
-        if highlights:
-            highlights.sort()
-            merged = [highlights[0]]
-            for start, end in highlights[1:]:
-                if start <= merged[-1][1]:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-                else:
-                    merged.append((start, end))
-            highlights = merged
-        
-        return highlights
-    
-    def _save_index(self, data_type: str, index: SearchIndex):
-        """Save index to disk."""
         try:
-            index_file = os.path.join(self.index_path, f"{data_type}_index.json")
-            data = {
-                'documents': {}
-            }
+            title = item_data.get('title', item_data.get('header', item_data.get('name', '')))
+            content = item_data.get('content', item_data.get('sequence', item_data.get('description', '')))
+            metadata = {k: v for k, v in item_data.items() if k not in ['id', 'title', 'content']}
+            created_date = item_data.get('created_date')
             
-            # Convert documents to serializable format
-            for doc_id, doc in index.documents.items():
-                doc_copy = doc.copy()
-                doc_copy['indexed_date'] = doc['indexed_date'].isoformat()
-                data['documents'][doc_id] = doc_copy
+            if isinstance(created_date, str):
+                created_date = datetime.fromisoformat(created_date)
+            elif not isinstance(created_date, datetime):
+                created_date = datetime.now()
             
-            with open(index_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                
-        except Exception as e:
-            self.logger.error(f"Failed to save index for {data_type}: {e}")
-    
-    def _load_indices(self):
-        """Load indices from disk."""
-        try:
-            if not os.path.exists(self.index_path):
-                return
-            
-            for filename in os.listdir(self.index_path):
-                if filename.endswith('_index.json'):
-                    data_type = filename[:-11]  # Remove '_index.json'
-                    index_file = os.path.join(self.index_path, filename)
-                    
-                    try:
-                        with open(index_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        
-                        # Recreate index
-                        index = SearchIndex(data_type)
-                        for doc_id, doc in data.get('documents', {}).items():
-                            doc['indexed_date'] = datetime.fromisoformat(doc['indexed_date'])
-                            index.documents[doc_id] = doc
-                            # Rebuild search indices
-                            index._index_text(doc_id, doc['title'] + " " + doc['content'])
-                        
-                        self.indices[data_type] = index
-                        self.logger.info(f"Loaded search index for {data_type}: {index.get_document_count()} documents")
-                        
-                    except Exception as e:
-                        self.logger.error(f"Failed to load index for {data_type}: {e}")
-            
-            # Load search history
-            self._load_history()
+            index.add_document(item_id, title, content, metadata, created_date)
             
         except Exception as e:
-            self.logger.error(f"Failed to load search indices: {e}")
+            self.logger.error(f"Failed to update index for {data_type}:{item_id}: {e}")
     
-    def _save_history(self):
-        """Save search history to disk."""
-        try:
-            history_file = os.path.join(self.index_path, "search_history.json")
-            data = []
-            for entry in self.search_history:
-                entry_copy = entry.copy()
-                entry_copy['timestamp'] = entry['timestamp'].isoformat()
-                data.append(entry_copy)
-            
-            with open(history_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                
-        except Exception as e:
-            self.logger.error(f"Failed to save search history: {e}")
+    def remove_from_index(self, data_type: str, item_id: str):
+        """Remove item from index."""
+        if data_type in self.indices:
+            try:
+                self.indices[data_type].remove_document(item_id)
+            except Exception as e:
+                self.logger.error(f"Failed to remove from index {data_type}:{item_id}: {e}")
     
-    def _load_history(self):
-        """Load search history from disk."""
-        try:
-            history_file = os.path.join(self.index_path, "search_history.json")
-            if os.path.exists(history_file):
-                with open(history_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+    def get_stats(self) -> Dict[str, Any]:
+        """Get comprehensive search engine statistics."""
+        stats = {
+            'indices': {},
+            'search_history_size': len(self.search_history),
+            'total_documents': 0
+        }
+        
+        for data_type, index in self.indices.items():
+            try:
+                index_stats = index.get_stats()
+                stats['indices'][data_type] = index_stats
+                stats['total_documents'] += index_stats['document_count']
+            except Exception as e:
+                self.logger.warning(f"Failed to get stats for {data_type}: {e}")
+                stats['indices'][data_type] = {'error': str(e)}
+        
+        return stats
+    
+    def clear_history(self):
+        """Clear search history."""
+        self.search_history.clear()
+    
+    def rebuild_all_indices(self):
+        """Rebuild all indices (useful for maintenance)."""
+        self.logger.info("Rebuilding all search indices")
+        
+        for data_type in list(self.indices.keys()):
+            try:
+                # Remove old index
+                index = self.indices[data_type]
+                if index.db_path.exists():
+                    index.db_path.unlink()
                 
-                self.search_history = []
-                for entry in data:
-                    entry['timestamp'] = datetime.fromisoformat(entry['timestamp'])
-                    self.search_history.append(entry)
+                # Create new index
+                self.indices[data_type] = SearchIndex(data_type, str(self.index_dir))
                 
-                self.logger.info(f"Loaded search history: {len(self.search_history)} entries")
-                
-        except Exception as e:
-            self.logger.error(f"Failed to load search history: {e}")
+            except Exception as e:
+                self.logger.error(f"Failed to rebuild index for {data_type}: {e}")
+        
+        self.logger.info("Index rebuild completed")
+
+
+# Global search engine instance
+_global_search_engine = None
+_search_engine_lock = threading.Lock()
+
+
+def get_search_engine() -> SearchEngine:
+    """Get the global search engine instance."""
+    global _global_search_engine
+    
+    if _global_search_engine is None:
+        with _search_engine_lock:
+            if _global_search_engine is None:
+                _global_search_engine = SearchEngine()
+    
+    return _global_search_engine

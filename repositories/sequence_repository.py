@@ -196,6 +196,36 @@ class SequenceRepository(BaseRepository[Sequence]):
         """Get sequences by type (dna, rna, protein)."""
         return self.list({"sequence_type": sequence_type})
     
+    def get_by_header(self, header: str, project_id: Optional[int] = None) -> Optional[Sequence]:
+        """Get sequence by header within a project."""
+        try:
+            base_query = "SELECT * FROM sequences WHERE header = ?"
+            params = [header]
+            
+            if project_id:
+                base_query += " AND project_id = ?"
+                params.append(project_id)
+            
+            base_query += " LIMIT 1"
+            
+            result = self._execute_query(base_query, tuple(params))
+            
+            if not result:
+                return None
+            
+            sequence = Sequence.from_dict(result[0])
+            
+            # Load sequence from file if stored externally
+            if sequence.file_path and not sequence.sequence:
+                sequence.sequence = self._load_sequence_file(sequence.file_path)
+                sequence.__post_init__()
+            
+            return sequence
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get sequence by header: {e}")
+            raise RepositoryError(f"Failed to get sequence by header: {e}")
+    
     def search_sequences(self, search_term: str, project_id: Optional[int] = None) -> List[Sequence]:
         """Search sequences by header or notes."""
         try:

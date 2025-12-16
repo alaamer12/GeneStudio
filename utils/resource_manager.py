@@ -1,635 +1,555 @@
-"""Resource management strategies for large datasets and memory usage."""
+"""Resource management and monitoring utilities."""
 
-import os
 import psutil
+import gc
 import threading
 import time
-import gc
-import weakref
-from typing import Any, Dict, List, Optional, Callable, Iterator, Tuple
+from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass
-from pathlib import Path
-from contextlib import contextmanager
-from functools import lru_cache
-import logging
-
-from utils.error_handling import MemoryError, ErrorContext, handle_error
+from datetime import datetime, timedelta
+import weakref
+from utils.logger import get_logger
 
 
 @dataclass
-class ResourceLimits:
-    """Resource limits configuration."""
-    max_memory_mb: int = 1024  # 1GB default
-    max_file_size_mb: int = 100  # 100MB default
-    max_concurrent_operations: int = 4
-    cache_size_mb: int = 256  # 256MB default
-    temp_cleanup_age_hours: int = 24
-
-
-@dataclass
-class ResourceUsage:
-    """Current resource usage information."""
+class ResourceSnapshot:
+    """Snapshot of system resource usage."""
+    timestamp: datetime
     memory_mb: float
+    memory_percent: float
     cpu_percent: float
-    disk_usage_mb: float
-    active_operations: int
-    cache_size_mb: float
-    temp_files_count: int
-
-
-class MemoryMonitor:
-    """Monitor and manage memory usage."""
+    disk_usage_percent: float
+    thread_count: int
+    file_descriptors: int
     
-    def __init__(self, limits: ResourceLimits):
-        self.limits = limits
-        self.logger = logging.getLogger(__name__)
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            'timestamp': self.timestamp.isoformat(),
+            'memory_mb': self.memory_mb,
+            'memory_percent': self.memory_percent,
+            'cpu_percent': self.cpu_percent,
+            'disk_usage_percent': self.disk_usage_percent,
+            'thread_count': self.thread_count,
+            'file_descriptors': self.file_descriptors
+        }
+
+
+@dataclass
+class ResourceThresholds:
+    """Resource usage thresholds for warnings."""
+    memory_mb: float = 1000.0  # 1GB
+    memory_percent: float = 80.0  # 80%
+    cpu_percent: float = 80.0  # 80%
+    disk_usage_percent: float = 90.0  # 90%
+    thread_count: int = 100
+    file_descriptors: int = 1000
+
+
+class ResourceMonitor:
+    """Monitors system resource usage and provides warnings."""
+    
+    def __init__(self, 
+                 thresholds: Optional[ResourceThresholds] = None,
+                 monitoring_interval: float = 5.0):
+        """
+        Initialize resource monitor.
+        
+        Args:
+            thresholds: Resource thresholds for warnings
+            monitoring_interval: Monitoring interval in seconds
+        """
+        self.thresholds = thresholds or ResourceThresholds()
+        self.monitoring_interval = monitoring_interval
+        self.logger = get_logger(self.__class__.__name__)
+        
+        self.process = psutil.Process()
+        self.snapshots: List[ResourceSnapshot] = []
+        self.max_snapshots = 100  # Keep last 100 snapshots
+        
         self._monitoring = False
         self._monitor_thread = None
-        self._callbacks = []
-        self._tracked_objects = weakref.WeakSet()
-    
-    def start_monitoring(self, interval: float = 5.0):
-        """Start memory monitoring."""
-        if self._monitoring:
-            return
+        self._lock = threading.Lock()
         
-        self._monitoring = True
-        self._monitor_thread = threading.Thread(
-            target=self._monitor_loop,
-            args=(interval,),
-            daemon=True
-        )
-        self._monitor_thread.start()
-        self.logger.info("Memory monitoring started")
+        # Callbacks for resource warnings
+        self._warning_callbacks: List[Callable[[str, ResourceSnapshot], None]] = []
+        
+        # Track resource peaks
+        self.peak_memory_mb = 0.0
+        self.peak_cpu_percent = 0.0
+        self.peak_thread_count = 0
+    
+    def start_monitoring(self):
+        """Start continuous resource monitoring."""
+        with self._lock:
+            if self._monitoring:
+                return
+            
+            self._monitoring = True
+            self._monitor_thread = threading.Thread(
+                target=self._monitor_loop,
+                daemon=True,
+                name="ResourceMonitor"
+            )
+            self._monitor_thread.start()
+            
+            self.logger.info("Resource monitoring started")
     
     def stop_monitoring(self):
-        """Stop memory monitoring."""
-        self._monitoring = False
-        if self._monitor_thread:
-            self._monitor_thread.join(timeout=1.0)
-        self.logger.info("Memory monitoring stopped")
+        """Stop resource monitoring."""
+        with self._lock:
+            if not self._monitoring:
+                return
+            
+            self._monitoring = False
+            
+            if self._monitor_thread and self._monitor_thread.is_alive():
+                self._monitor_thread.join(timeout=1.0)
+            
+            self.logger.info("Resource monitoring stopped")
     
-    def _monitor_loop(self, interval: float):
-        """Memory monitoring loop."""
+    def get_current_snapshot(self) -> ResourceSnapshot:
+        """Get current resource usage snapshot."""
+        try:
+            memory_info = self.process.memory_info()
+            memory_mb = memory_info.rss / (1024 * 1024)
+            memory_percent = self.process.memory_percent()
+            cpu_percent = self.process.cpu_percent()
+            
+            # System-wide disk usage
+            disk_usage = psutil.disk_usage('/')
+            disk_usage_percent = (disk_usage.used / disk_usage.total) * 100
+            
+            thread_count = self.process.num_threads()
+            
+            # File descriptors (Unix-like systems)
+            try:
+                file_descriptors = self.process.num_fds()
+            except (AttributeError, psutil.AccessDenied):
+                file_descriptors = 0
+            
+            snapshot = ResourceSnapshot(
+                timestamp=datetime.now(),
+                memory_mb=memory_mb,
+                memory_percent=memory_percent,
+                cpu_percent=cpu_percent,
+                disk_usage_percent=disk_usage_percent,
+                thread_count=thread_count,
+                file_descriptors=file_descriptors
+            )
+            
+            # Update peaks
+            self.peak_memory_mb = max(self.peak_memory_mb, memory_mb)
+            self.peak_cpu_percent = max(self.peak_cpu_percent, cpu_percent)
+            self.peak_thread_count = max(self.peak_thread_count, thread_count)
+            
+            return snapshot
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get resource snapshot: {e}")
+            return ResourceSnapshot(
+                timestamp=datetime.now(),
+                memory_mb=0, memory_percent=0, cpu_percent=0,
+                disk_usage_percent=0, thread_count=0, file_descriptors=0
+            )
+    
+    def _monitor_loop(self):
+        """Main monitoring loop."""
         while self._monitoring:
             try:
-                usage = self.get_memory_usage()
+                snapshot = self.get_current_snapshot()
                 
-                # Check if memory usage exceeds limits
-                if usage > self.limits.max_memory_mb:
-                    self._handle_memory_pressure(usage)
+                # Store snapshot
+                with self._lock:
+                    self.snapshots.append(snapshot)
+                    if len(self.snapshots) > self.max_snapshots:
+                        self.snapshots = self.snapshots[-self.max_snapshots:]
                 
-                # Notify callbacks
-                for callback in self._callbacks:
-                    try:
-                        callback(usage)
-                    except Exception as e:
-                        self.logger.error(f"Memory monitor callback failed: {e}")
+                # Check thresholds and trigger warnings
+                self._check_thresholds(snapshot)
                 
-                time.sleep(interval)
+                time.sleep(self.monitoring_interval)
                 
             except Exception as e:
-                self.logger.error(f"Memory monitoring error: {e}")
-                time.sleep(interval)
+                self.logger.error(f"Error in monitoring loop: {e}")
+                time.sleep(self.monitoring_interval)
     
-    def get_memory_usage(self) -> float:
-        """Get current memory usage in MB."""
-        process = psutil.Process()
-        memory_info = process.memory_info()
-        return memory_info.rss / (1024 * 1024)  # Convert to MB
+    def _check_thresholds(self, snapshot: ResourceSnapshot):
+        """Check if any thresholds are exceeded."""
+        warnings = []
+        
+        if snapshot.memory_mb > self.thresholds.memory_mb:
+            warnings.append(f"High memory usage: {snapshot.memory_mb:.1f}MB")
+        
+        if snapshot.memory_percent > self.thresholds.memory_percent:
+            warnings.append(f"High memory percentage: {snapshot.memory_percent:.1f}%")
+        
+        if snapshot.cpu_percent > self.thresholds.cpu_percent:
+            warnings.append(f"High CPU usage: {snapshot.cpu_percent:.1f}%")
+        
+        if snapshot.disk_usage_percent > self.thresholds.disk_usage_percent:
+            warnings.append(f"High disk usage: {snapshot.disk_usage_percent:.1f}%")
+        
+        if snapshot.thread_count > self.thresholds.thread_count:
+            warnings.append(f"High thread count: {snapshot.thread_count}")
+        
+        if snapshot.file_descriptors > self.thresholds.file_descriptors:
+            warnings.append(f"High file descriptor count: {snapshot.file_descriptors}")
+        
+        # Trigger warning callbacks
+        for warning in warnings:
+            self.logger.warning(warning)
+            for callback in self._warning_callbacks:
+                try:
+                    callback(warning, snapshot)
+                except Exception as e:
+                    self.logger.error(f"Error in warning callback: {e}")
     
-    def get_system_memory_info(self) -> Dict[str, float]:
-        """Get system memory information."""
-        memory = psutil.virtual_memory()
+    def add_warning_callback(self, callback: Callable[[str, ResourceSnapshot], None]):
+        """Add callback for resource warnings."""
+        self._warning_callbacks.append(callback)
+    
+    def remove_warning_callback(self, callback: Callable[[str, ResourceSnapshot], None]):
+        """Remove warning callback."""
+        if callback in self._warning_callbacks:
+            self._warning_callbacks.remove(callback)
+    
+    def get_recent_snapshots(self, minutes: int = 10) -> List[ResourceSnapshot]:
+        """Get snapshots from the last N minutes."""
+        cutoff_time = datetime.now() - timedelta(minutes=minutes)
+        
+        with self._lock:
+            return [s for s in self.snapshots if s.timestamp >= cutoff_time]
+    
+    def get_average_usage(self, minutes: int = 10) -> Dict[str, float]:
+        """Get average resource usage over the last N minutes."""
+        snapshots = self.get_recent_snapshots(minutes)
+        
+        if not snapshots:
+            return {}
+        
         return {
-            'total_mb': memory.total / (1024 * 1024),
-            'available_mb': memory.available / (1024 * 1024),
-            'used_mb': memory.used / (1024 * 1024),
-            'percent': memory.percent
+            'memory_mb': sum(s.memory_mb for s in snapshots) / len(snapshots),
+            'memory_percent': sum(s.memory_percent for s in snapshots) / len(snapshots),
+            'cpu_percent': sum(s.cpu_percent for s in snapshots) / len(snapshots),
+            'disk_usage_percent': sum(s.disk_usage_percent for s in snapshots) / len(snapshots),
+            'thread_count': sum(s.thread_count for s in snapshots) / len(snapshots),
+            'file_descriptors': sum(s.file_descriptors for s in snapshots) / len(snapshots)
         }
     
-    def _handle_memory_pressure(self, current_usage: float):
-        """Handle memory pressure situation."""
-        self.logger.warning(f"Memory usage ({current_usage:.1f}MB) exceeds limit ({self.limits.max_memory_mb}MB)")
+    def get_peak_usage(self) -> Dict[str, float]:
+        """Get peak resource usage since monitoring started."""
+        return {
+            'memory_mb': self.peak_memory_mb,
+            'cpu_percent': self.peak_cpu_percent,
+            'thread_count': self.peak_thread_count
+        }
+    
+    def should_trigger_gc(self) -> bool:
+        """Check if garbage collection should be triggered."""
+        current = self.get_current_snapshot()
         
-        # Try garbage collection first
-        collected = gc.collect()
-        self.logger.info(f"Garbage collection freed {collected} objects")
-        
-        # Check usage after GC
-        new_usage = self.get_memory_usage()
-        if new_usage < self.limits.max_memory_mb:
-            self.logger.info(f"Memory usage reduced to {new_usage:.1f}MB after GC")
-            return
-        
-        # Clear caches if still over limit
-        self._clear_caches()
-        
-        # Final check
-        final_usage = self.get_memory_usage()
-        if final_usage >= self.limits.max_memory_mb:
-            # Raise memory error
-            context = ErrorContext(
-                operation="memory_monitoring",
-                component="resource_manager"
-            )
-            error = MemoryError(
-                f"Memory usage ({final_usage:.1f}MB) exceeds limit ({self.limits.max_memory_mb}MB)",
-                memory_usage=int(final_usage * 1024 * 1024),
-                context=context
-            )
-            handle_error(error, suppress=True)
-    
-    def _clear_caches(self):
-        """Clear application caches to free memory."""
-        # Clear function caches
-        for obj in gc.get_objects():
-            if hasattr(obj, 'cache_clear') and callable(obj.cache_clear):
-                try:
-                    obj.cache_clear()
-                except Exception:
-                    pass
-        
-        self.logger.info("Cleared application caches")
-    
-    def add_callback(self, callback: Callable[[float], None]):
-        """Add memory usage callback."""
-        self._callbacks.append(callback)
-    
-    def track_object(self, obj: Any):
-        """Track an object for memory monitoring."""
-        self._tracked_objects.add(obj)
-    
-    def get_tracked_objects_count(self) -> int:
-        """Get count of tracked objects."""
-        return len(self._tracked_objects)
-
-
-class FileManager:
-    """Manage file operations and large file handling."""
-    
-    def __init__(self, limits: ResourceLimits):
-        self.limits = limits
-        self.logger = logging.getLogger(__name__)
-        self._temp_files = set()
-        self._file_locks = {}
-        self._lock = threading.Lock()
-    
-    def validate_file_size(self, filepath: str) -> bool:
-        """Validate file size against limits."""
-        try:
-            file_size = Path(filepath).stat().st_size
-            size_mb = file_size / (1024 * 1024)
-            
-            if size_mb > self.limits.max_file_size_mb:
-                context = ErrorContext(
-                    operation="file_validation",
-                    component="file_manager",
-                    additional_data={'filepath': filepath, 'size_mb': size_mb}
-                )
-                from utils.error_handling import FileSystemError
-                raise FileSystemError(
-                    f"File size ({size_mb:.1f}MB) exceeds limit ({self.limits.max_file_size_mb}MB)",
-                    filepath=filepath,
-                    operation="size_check",
-                    context=context
-                )
-            
+        # Trigger GC if memory usage is high
+        if current.memory_mb > self.thresholds.memory_mb * 0.8:
             return True
-            
-        except OSError as e:
-            context = ErrorContext(
-                operation="file_validation",
-                component="file_manager"
-            )
-            from utils.error_handling import FileSystemError
-            raise FileSystemError(
-                f"Cannot access file: {e}",
-                filepath=filepath,
-                operation="access_check",
-                context=context
-            )
-    
-    def stream_large_file(self, filepath: str, chunk_size: int = 8192) -> Iterator[bytes]:
-        """Stream large file in chunks to avoid memory issues."""
-        self.validate_file_size(filepath)
         
-        try:
-            with open(filepath, 'rb') as f:
-                while True:
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-                    
-        except IOError as e:
-            context = ErrorContext(
-                operation="file_streaming",
-                component="file_manager"
-            )
-            from utils.error_handling import FileSystemError
-            raise FileSystemError(
-                f"Error streaming file: {e}",
-                filepath=filepath,
-                operation="stream",
-                context=context
-            )
-    
-    def read_file_lines(self, filepath: str, max_lines: Optional[int] = None) -> Iterator[str]:
-        """Read file lines with optional limit."""
-        self.validate_file_size(filepath)
-        
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                for i, line in enumerate(f):
-                    if max_lines and i >= max_lines:
-                        break
-                    yield line.rstrip('\n\r')
-                    
-        except IOError as e:
-            context = ErrorContext(
-                operation="file_reading",
-                component="file_manager"
-            )
-            from utils.error_handling import FileSystemError
-            raise FileSystemError(
-                f"Error reading file: {e}",
-                filepath=filepath,
-                operation="read",
-                context=context
-            )
-    
-    def create_temp_file(self, suffix: str = '.tmp', prefix: str = 'genestudio_') -> str:
-        """Create a temporary file and track it for cleanup."""
-        import tempfile
-        
-        fd, filepath = tempfile.mkstemp(suffix=suffix, prefix=prefix)
-        os.close(fd)  # Close file descriptor, keep file
-        
-        with self._lock:
-            self._temp_files.add(filepath)
-        
-        self.logger.debug(f"Created temporary file: {filepath}")
-        return filepath
-    
-    def cleanup_temp_files(self, max_age_hours: Optional[int] = None):
-        """Clean up temporary files."""
-        if max_age_hours is None:
-            max_age_hours = self.limits.temp_cleanup_age_hours
-        
-        max_age_seconds = max_age_hours * 3600
-        current_time = time.time()
-        cleaned_count = 0
-        
-        with self._lock:
-            files_to_remove = set()
-            
-            for filepath in self._temp_files:
-                try:
-                    if Path(filepath).exists():
-                        file_age = current_time - Path(filepath).stat().st_mtime
-                        if file_age > max_age_seconds:
-                            os.unlink(filepath)
-                            files_to_remove.add(filepath)
-                            cleaned_count += 1
-                    else:
-                        # File already deleted
-                        files_to_remove.add(filepath)
-                        
-                except Exception as e:
-                    self.logger.warning(f"Error cleaning temp file {filepath}: {e}")
-            
-            # Remove from tracking
-            self._temp_files -= files_to_remove
-        
-        self.logger.info(f"Cleaned up {cleaned_count} temporary files")
-        return cleaned_count
-    
-    def get_temp_files_info(self) -> Dict[str, Any]:
-        """Get information about temporary files."""
-        with self._lock:
-            total_size = 0
-            existing_count = 0
-            
-            for filepath in self._temp_files:
-                try:
-                    if Path(filepath).exists():
-                        total_size += Path(filepath).stat().st_size
-                        existing_count += 1
-                except Exception:
-                    pass
-            
-            return {
-                'total_tracked': len(self._temp_files),
-                'existing_count': existing_count,
-                'total_size_mb': total_size / (1024 * 1024)
-            }
-
-
-class OperationManager:
-    """Manage concurrent operations and resource allocation."""
-    
-    def __init__(self, limits: ResourceLimits):
-        self.limits = limits
-        self.logger = logging.getLogger(__name__)
-        self._active_operations = {}
-        self._operation_counter = 0
-        self._lock = threading.Lock()
-        self._semaphore = threading.Semaphore(limits.max_concurrent_operations)
-    
-    @contextmanager
-    def operation(self, name: str, description: str = ""):
-        """Context manager for tracking operations."""
-        operation_id = None
-        
-        try:
-            # Acquire semaphore (blocks if at limit)
-            self._semaphore.acquire()
-            
-            # Register operation
-            with self._lock:
-                self._operation_counter += 1
-                operation_id = self._operation_counter
-                
-                self._active_operations[operation_id] = {
-                    'name': name,
-                    'description': description,
-                    'start_time': time.time(),
-                    'thread_id': threading.get_ident()
-                }
-            
-            self.logger.info(f"Started operation {operation_id}: {name}")
-            yield operation_id
-            
-        finally:
-            # Clean up operation
-            if operation_id:
-                with self._lock:
-                    if operation_id in self._active_operations:
-                        operation = self._active_operations.pop(operation_id)
-                        duration = time.time() - operation['start_time']
-                        self.logger.info(f"Completed operation {operation_id}: {name} in {duration:.2f}s")
-            
-            # Release semaphore
-            self._semaphore.release()
-    
-    def get_active_operations(self) -> Dict[int, Dict[str, Any]]:
-        """Get information about active operations."""
-        with self._lock:
-            current_time = time.time()
-            operations = {}
-            
-            for op_id, op_info in self._active_operations.items():
-                operations[op_id] = {
-                    **op_info,
-                    'duration': current_time - op_info['start_time']
-                }
-            
-            return operations
-    
-    def get_operation_count(self) -> int:
-        """Get count of active operations."""
-        with self._lock:
-            return len(self._active_operations)
-    
-    def wait_for_operations(self, timeout: Optional[float] = None) -> bool:
-        """Wait for all operations to complete."""
-        start_time = time.time()
-        
-        while self.get_operation_count() > 0:
-            if timeout and (time.time() - start_time) > timeout:
-                return False
-            time.sleep(0.1)
-        
-        return True
-
-
-class CacheManager:
-    """Manage application caches with size limits."""
-    
-    def __init__(self, limits: ResourceLimits):
-        self.limits = limits
-        self.logger = logging.getLogger(__name__)
-        self._caches = {}
-        self._cache_sizes = {}
-        self._lock = threading.Lock()
-    
-    def register_cache(self, name: str, cache_obj: Any, size_estimator: Callable[[Any], int]):
-        """Register a cache for management."""
-        with self._lock:
-            self._caches[name] = {
-                'cache': cache_obj,
-                'size_estimator': size_estimator
-            }
-            self._update_cache_size(name)
-    
-    def _update_cache_size(self, name: str):
-        """Update cache size estimate."""
-        if name in self._caches:
-            cache_info = self._caches[name]
-            try:
-                size = cache_info['size_estimator'](cache_info['cache'])
-                self._cache_sizes[name] = size
-            except Exception as e:
-                self.logger.warning(f"Error estimating cache size for {name}: {e}")
-                self._cache_sizes[name] = 0
-    
-    def get_total_cache_size(self) -> int:
-        """Get total cache size in bytes."""
-        with self._lock:
-            # Update all cache sizes
-            for name in self._caches:
-                self._update_cache_size(name)
-            
-            return sum(self._cache_sizes.values())
-    
-    def clear_cache(self, name: str) -> bool:
-        """Clear a specific cache."""
-        with self._lock:
-            if name in self._caches:
-                cache_obj = self._caches[name]['cache']
-                try:
-                    if hasattr(cache_obj, 'clear'):
-                        cache_obj.clear()
-                    elif hasattr(cache_obj, 'cache_clear'):
-                        cache_obj.cache_clear()
-                    
-                    self._cache_sizes[name] = 0
-                    self.logger.info(f"Cleared cache: {name}")
-                    return True
-                    
-                except Exception as e:
-                    self.logger.error(f"Error clearing cache {name}: {e}")
+        # Trigger GC if memory growth is rapid
+        recent_snapshots = self.get_recent_snapshots(5)  # Last 5 minutes
+        if len(recent_snapshots) >= 2:
+            memory_growth = recent_snapshots[-1].memory_mb - recent_snapshots[0].memory_mb
+            if memory_growth > 100:  # 100MB growth in 5 minutes
+                return True
         
         return False
     
-    def clear_all_caches(self):
-        """Clear all registered caches."""
-        with self._lock:
-            cleared_count = 0
-            for name in list(self._caches.keys()):
-                if self.clear_cache(name):
-                    cleared_count += 1
-            
-            self.logger.info(f"Cleared {cleared_count} caches")
-    
-    def enforce_cache_limits(self):
-        """Enforce cache size limits."""
-        total_size_mb = self.get_total_cache_size() / (1024 * 1024)
-        
-        if total_size_mb > self.limits.cache_size_mb:
-            self.logger.warning(f"Cache size ({total_size_mb:.1f}MB) exceeds limit ({self.limits.cache_size_mb}MB)")
-            
-            # Clear caches starting with largest
-            with self._lock:
-                sorted_caches = sorted(
-                    self._cache_sizes.items(),
-                    key=lambda x: x[1],
-                    reverse=True
-                )
-                
-                for name, size in sorted_caches:
-                    if self.get_total_cache_size() / (1024 * 1024) <= self.limits.cache_size_mb:
-                        break
-                    
-                    self.clear_cache(name)
-                    self.logger.info(f"Cleared cache {name} ({size / (1024 * 1024):.1f}MB)")
+    def cleanup(self):
+        """Cleanup resources."""
+        self.stop_monitoring()
+        self._warning_callbacks.clear()
+        self.snapshots.clear()
 
 
-class ResourceManager:
-    """Main resource manager coordinating all resource management."""
+class MemoryManager:
+    """Manages memory usage and garbage collection."""
     
-    def __init__(self, limits: Optional[ResourceLimits] = None):
-        self.limits = limits or ResourceLimits()
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, resource_monitor: Optional[ResourceMonitor] = None):
+        self.resource_monitor = resource_monitor
+        self.logger = get_logger(self.__class__.__name__)
         
-        # Initialize managers
-        self.memory_monitor = MemoryMonitor(self.limits)
-        self.file_manager = FileManager(self.limits)
-        self.operation_manager = OperationManager(self.limits)
-        self.cache_manager = CacheManager(self.limits)
-        
-        # Start monitoring
-        self.memory_monitor.start_monitoring()
-        
-        # Setup cleanup timer
-        self._cleanup_timer = None
-        self._start_cleanup_timer()
+        # Track large objects
+        self._large_objects = weakref.WeakSet()
+        self._gc_stats = {
+            'manual_collections': 0,
+            'auto_collections': 0,
+            'objects_collected': 0
+        }
     
-    def _start_cleanup_timer(self):
-        """Start periodic cleanup timer."""
-        def cleanup_task():
-            try:
-                self.cleanup_resources()
-            except Exception as e:
-                self.logger.error(f"Resource cleanup error: {e}")
-            finally:
-                # Schedule next cleanup
-                self._cleanup_timer = threading.Timer(3600, cleanup_task)  # Every hour
-                self._cleanup_timer.daemon = True
-                self._cleanup_timer.start()
-        
-        self._cleanup_timer = threading.Timer(3600, cleanup_task)  # First cleanup in 1 hour
-        self._cleanup_timer.daemon = True
-        self._cleanup_timer.start()
+    def register_large_object(self, obj: Any):
+        """Register a large object for tracking."""
+        self._large_objects.add(obj)
     
-    def cleanup_resources(self):
-        """Perform resource cleanup."""
-        self.logger.info("Starting resource cleanup")
+    def force_garbage_collection(self) -> Dict[str, int]:
+        """Force garbage collection and return statistics."""
+        self.logger.info("Forcing garbage collection")
         
-        # Clean temporary files
-        temp_cleaned = self.file_manager.cleanup_temp_files()
+        # Get initial object counts
+        initial_counts = [len(gc.get_objects(generation)) for generation in range(3)]
         
-        # Enforce cache limits
-        self.cache_manager.enforce_cache_limits()
-        
-        # Force garbage collection
+        # Force collection
         collected = gc.collect()
         
-        self.logger.info(f"Resource cleanup completed: {temp_cleaned} temp files, {collected} objects collected")
+        # Get final object counts
+        final_counts = [len(gc.get_objects(generation)) for generation in range(3)]
+        
+        # Update statistics
+        self._gc_stats['manual_collections'] += 1
+        self._gc_stats['objects_collected'] += collected
+        
+        stats = {
+            'objects_collected': collected,
+            'generation_0_freed': initial_counts[0] - final_counts[0],
+            'generation_1_freed': initial_counts[1] - final_counts[1],
+            'generation_2_freed': initial_counts[2] - final_counts[2],
+            'large_objects_tracked': len(self._large_objects)
+        }
+        
+        self.logger.info(f"Garbage collection completed: {stats}")
+        return stats
     
-    def get_resource_usage(self) -> ResourceUsage:
-        """Get current resource usage."""
-        memory_mb = self.memory_monitor.get_memory_usage()
-        
-        # Get CPU usage
-        cpu_percent = psutil.cpu_percent(interval=0.1)
-        
-        # Get disk usage for temp files
-        temp_info = self.file_manager.get_temp_files_info()
-        
-        # Get cache size
-        cache_size_mb = self.cache_manager.get_total_cache_size() / (1024 * 1024)
-        
-        return ResourceUsage(
-            memory_mb=memory_mb,
-            cpu_percent=cpu_percent,
-            disk_usage_mb=temp_info['total_size_mb'],
-            active_operations=self.operation_manager.get_operation_count(),
-            cache_size_mb=cache_size_mb,
-            temp_files_count=temp_info['existing_count']
-        )
+    def auto_manage_memory(self):
+        """Automatically manage memory based on usage."""
+        if self.resource_monitor and self.resource_monitor.should_trigger_gc():
+            self.force_garbage_collection()
     
-    def check_resource_limits(self) -> List[str]:
-        """Check if any resource limits are exceeded."""
-        usage = self.get_resource_usage()
-        violations = []
-        
-        if usage.memory_mb > self.limits.max_memory_mb:
-            violations.append(f"Memory usage ({usage.memory_mb:.1f}MB) exceeds limit ({self.limits.max_memory_mb}MB)")
-        
-        if usage.cache_size_mb > self.limits.cache_size_mb:
-            violations.append(f"Cache size ({usage.cache_size_mb:.1f}MB) exceeds limit ({self.limits.cache_size_mb}MB)")
-        
-        if usage.active_operations >= self.limits.max_concurrent_operations:
-            violations.append(f"Active operations ({usage.active_operations}) at limit ({self.limits.max_concurrent_operations})")
-        
-        return violations
+    def get_memory_info(self) -> Dict[str, Any]:
+        """Get detailed memory information."""
+        try:
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            
+            info = {
+                'rss_mb': memory_info.rss / (1024 * 1024),
+                'vms_mb': memory_info.vms / (1024 * 1024),
+                'memory_percent': process.memory_percent(),
+                'gc_stats': self._gc_stats.copy(),
+                'gc_thresholds': gc.get_threshold(),
+                'gc_counts': gc.get_count(),
+                'large_objects_tracked': len(self._large_objects)
+            }
+            
+            # Add platform-specific info
+            if hasattr(memory_info, 'pss'):
+                info['pss_mb'] = memory_info.pss / (1024 * 1024)
+            if hasattr(memory_info, 'uss'):
+                info['uss_mb'] = memory_info.uss / (1024 * 1024)
+            
+            return info
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get memory info: {e}")
+            return {}
     
-    def shutdown(self):
-        """Shutdown resource manager."""
-        self.logger.info("Shutting down resource manager")
+    def optimize_gc_thresholds(self):
+        """Optimize garbage collection thresholds based on usage patterns."""
+        current_thresholds = gc.get_threshold()
         
-        # Stop monitoring
-        self.memory_monitor.stop_monitoring()
+        # If we have high memory usage, make GC more aggressive
+        if self.resource_monitor:
+            current_snapshot = self.resource_monitor.get_current_snapshot()
+            
+            if current_snapshot.memory_percent > 70:
+                # More aggressive GC
+                new_thresholds = (
+                    current_thresholds[0] // 2,
+                    current_thresholds[1] // 2,
+                    current_thresholds[2] // 2
+                )
+                gc.set_threshold(*new_thresholds)
+                self.logger.info(f"Set aggressive GC thresholds: {new_thresholds}")
+            
+            elif current_snapshot.memory_percent < 30:
+                # Less aggressive GC
+                new_thresholds = (
+                    current_thresholds[0] * 2,
+                    current_thresholds[1] * 2,
+                    current_thresholds[2] * 2
+                )
+                gc.set_threshold(*new_thresholds)
+                self.logger.info(f"Set relaxed GC thresholds: {new_thresholds}")
+
+
+class StreamingProcessor:
+    """Processes large datasets using streaming to avoid memory issues."""
+    
+    def __init__(self, 
+                 chunk_size: int = 1000,
+                 memory_manager: Optional[MemoryManager] = None):
+        self.chunk_size = chunk_size
+        self.memory_manager = memory_manager
+        self.logger = get_logger(self.__class__.__name__)
+    
+    def process_file_stream(self, 
+                           file_path: str,
+                           processor: Callable[[str], Any],
+                           progress_callback: Optional[Callable[[float], None]] = None):
+        """Process a large file line by line."""
+        try:
+            import os
+            file_size = os.path.getsize(file_path)
+            processed_bytes = 0
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    try:
+                        # Process line
+                        result = processor(line.strip())
+                        
+                        # Update progress
+                        processed_bytes += len(line.encode('utf-8'))
+                        if progress_callback and line_num % 100 == 0:
+                            progress = processed_bytes / file_size
+                            progress_callback(progress)
+                        
+                        # Memory management
+                        if self.memory_manager and line_num % 1000 == 0:
+                            self.memory_manager.auto_manage_memory()
+                        
+                        yield result
+                        
+                    except Exception as e:
+                        self.logger.warning(f"Error processing line {line_num}: {e}")
+                        continue
+            
+            if progress_callback:
+                progress_callback(1.0)
+                
+        except Exception as e:
+            self.logger.error(f"Error processing file {file_path}: {e}")
+            raise
+    
+    def process_data_chunks(self,
+                           data_source: Callable[[int, int], List[Any]],
+                           processor: Callable[[List[Any]], Any],
+                           total_count: int,
+                           progress_callback: Optional[Callable[[float], None]] = None):
+        """Process data in chunks to manage memory usage."""
+        processed_count = 0
         
-        # Cancel cleanup timer
-        if self._cleanup_timer:
-            self._cleanup_timer.cancel()
+        while processed_count < total_count:
+            try:
+                # Calculate chunk size for this iteration
+                current_chunk_size = min(self.chunk_size, total_count - processed_count)
+                
+                # Get chunk data
+                chunk_data = data_source(processed_count, current_chunk_size)
+                
+                if not chunk_data:
+                    break
+                
+                # Process chunk
+                result = processor(chunk_data)
+                yield result
+                
+                processed_count += len(chunk_data)
+                
+                # Update progress
+                if progress_callback:
+                    progress = processed_count / total_count
+                    progress_callback(progress)
+                
+                # Memory management
+                if self.memory_manager:
+                    self.memory_manager.auto_manage_memory()
+                
+                # Log progress periodically
+                if processed_count % (self.chunk_size * 10) == 0:
+                    self.logger.info(f"Processed {processed_count}/{total_count} items")
+                
+            except Exception as e:
+                self.logger.error(f"Error processing chunk at offset {processed_count}: {e}")
+                processed_count += current_chunk_size
+                continue
+
+
+# Global instances
+_global_resource_monitor = None
+_global_memory_manager = None
+_monitor_lock = threading.Lock()
+
+
+def get_resource_monitor() -> ResourceMonitor:
+    """Get the global resource monitor instance."""
+    global _global_resource_monitor
+    
+    if _global_resource_monitor is None:
+        with _monitor_lock:
+            if _global_resource_monitor is None:
+                _global_resource_monitor = ResourceMonitor()
+                _global_resource_monitor.start_monitoring()
+    
+    return _global_resource_monitor
+
+
+def get_memory_manager() -> MemoryManager:
+    """Get the global memory manager instance."""
+    global _global_memory_manager
+    
+    if _global_memory_manager is None:
+        with _monitor_lock:
+            if _global_memory_manager is None:
+                resource_monitor = get_resource_monitor()
+                _global_memory_manager = MemoryManager(resource_monitor)
+    
+    return _global_memory_manager
+
+
+def get_resource_manager():
+    """Get the global memory manager instance (alias for compatibility)."""
+    return get_memory_manager()
+
+
+def managed_operation(operation_name: str, description: str = ""):
+    """Context manager for resource-managed operations."""
+    class ManagedOperationContext:
+        def __init__(self, name: str, desc: str):
+            self.name = name
+            self.description = desc
+            self.memory_manager = get_memory_manager()
+            self.start_time = None
         
-        # Wait for operations to complete
-        self.operation_manager.wait_for_operations(timeout=30.0)
+        def __enter__(self):
+            self.start_time = time.time()
+            return self
         
-        # Final cleanup
-        self.cleanup_resources()
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            # Auto manage memory after operation
+            self.memory_manager.auto_manage_memory()
+            
+            # Log operation completion
+            duration = time.time() - self.start_time if self.start_time else 0
+            logger = get_logger("ManagedOperation")
+            logger.info(f"Operation '{self.name}' completed in {duration:.2f}s")
+    
+    return ManagedOperationContext(operation_name, description)
 
 
-# Global resource manager instance
-_resource_manager = None
-
-
-def get_resource_manager() -> ResourceManager:
-    """Get the global resource manager instance."""
-    global _resource_manager
-    if _resource_manager is None:
-        _resource_manager = ResourceManager()
-    return _resource_manager
-
-
-def with_resource_management(operation_name: str, description: str = ""):
+def with_resource_management(operation_name: str):
     """Decorator for resource-managed operations."""
-    def decorator(func: Callable) -> Callable:
+    def decorator(func):
         def wrapper(*args, **kwargs):
-            manager = get_resource_manager()
-            with manager.operation_manager.operation(operation_name, description):
+            with managed_operation(operation_name, f"Function: {func.__name__}"):
                 return func(*args, **kwargs)
         return wrapper
     return decorator
 
 
-@contextmanager
-def managed_operation(name: str, description: str = ""):
-    """Context manager for resource-managed operations."""
-    manager = get_resource_manager()
-    with manager.operation_manager.operation(name, description) as op_id:
-        yield op_id
+def cleanup_global_resources():
+    """Cleanup global resource managers."""
+    global _global_resource_monitor, _global_memory_manager
+    
+    with _monitor_lock:
+        if _global_resource_monitor:
+            _global_resource_monitor.cleanup()
+            _global_resource_monitor = None
+        
+        _global_memory_manager = None
