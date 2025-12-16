@@ -1,22 +1,28 @@
 """
-GeneStudio - DNA Sequence Analysis Application
+GeneStudio Pro - Advanced DNA Sequence Analysis Application
 
 A professional desktop GUI application for DNA sequence analysis implementing
-core bioinformatics algorithms using CustomTkinter and MVVM architecture.
+core bioinformatics algorithms with advanced visualizations using CustomTkinter,
+matplotlib, and MVVM architecture.
 """
 
 import customtkinter as ctk
-from views.main_window import MainWindow
+from views.enhanced_main_window import EnhancedMainWindow
+from views.components.splash_screen import SplashScreen
 
 
 def main():
-    """Main entry point for GeneStudio application."""
+    """Main entry point for GeneStudio Pro application."""
     # Set appearance mode and color theme
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
     
-    # Create and run application
-    app = MainWindow()
+    # Show splash screen
+    splash = SplashScreen()
+    splash.show_and_wait(duration=3.5)
+    
+    # Create and run enhanced application
+    app = EnhancedMainWindow()
     app.mainloop()
 
 
