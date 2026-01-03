@@ -1,1 +1,32 @@
-customtkinter>=5.2.0
+# GeneStudio Pro Dependencies
+# 
+# This file is maintained for compatibility.
+# The canonical dependency specification is in pyproject.toml
+# 
+# To install: uv sync
+# For development: uv sync --extra dev
+
+# GUI Framework
+customtkinter
+
+# Data Visualization  
+matplotlib
+numpy
+
+# Database
+duckdb
+pypika
+
+# System Integration
+psutil
+platformdirs
+
+# Network Operations
+requests
+
+# UI Components
+tkinter-tooltip
+
+# Testing Framework
+hypothesis
+

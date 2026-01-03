@@ -1,0 +1,113 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "GeneStudio"
+version = "1.0.0"
+description = "Modern desktop GUI application for DNA sequence analysis and bioinformatics algorithms"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Alaamer", email = "ahmedmuhmmed239@gmail.com" }
+]
+maintainers = [
+    { name = "Alaamer", email = "ahmedmuhmmed239@gmail.com" }
+]
+keywords = [
+    "bioinformatics",
+    "dna-analysis",
+    "sequence-analysis",
+    "gui",
+    "desktop-application",
+    "algorithms",
+    "pattern-matching",
+    "fasta"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Education",
+    "Topic :: Desktop Environment",
+]
+requires-python = ">=3.10"
+dependencies = [
+    # GUI Framework
+    "customtkinter",
+    
+    # Data Visualization
+    "matplotlib",
+    "numpy",
+    
+    # Database
+    "duckdb",
+    "pypika",
+    
+    # System Integration
+    "psutil",
+    "platformdirs",
+    
+    # Network Operations
+    "requests",
+    
+    # UI Components
+    "tkinter-tooltip",
+]
+
+[project.optional-dependencies]
+dev = [
+]
+
+test = [
+    "hypothesis>=6.0.0",
+]
+
+
+[project.urls]
+Homepage = "https://github.com/genestudio/genestudio-pro"
+Documentation = "https://genestudio-pro.readthedocs.io"
+Repository = "https://github.com/genestudio/genestudio-pro"
+"Bug Tracker" = "https://github.com/genestudio/genestudio-pro/issues"
+Changelog = "https://github.com/genestudio/genestudio-pro/blob/main/CHANGELOG.md"
+
+
+# Hatch configuration
+[tool.hatch.version]
+path = "main.py"
+pattern = "__version__ = ['\"](?P<version>[^'\"]*)['\"]"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "algorithms",
+    "database", 
+    "models",
+    "repositories",
+    "services",
+    "utils",
+    "viewmodels",
+    "views",
+]
+exclude = ["tests", "*.pyc", "__pycache__", ".git", ".venv", ".pytest_cache", "*.egg-info"]
+
+[tool.hatch.build.targets.wheel.sources]
+"algorithms" = "algorithms"
+"database" = "database"
+"models" = "models"
+"repositories" = "repositories"
+"services" = "services"
+"utils" = "utils"
+"viewmodels" = "viewmodels"
+"views" = "views"
+
+# Include data files
+[tool.hatch.build.targets.wheel.force-include]
+"data" = "genestudio_pro/data"
+"docs" = "genestudio_pro/docs"
